@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Meta Prompts — Job Portal{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0"><i class="bi bi-chat-quote me-1"></i>Meta Prompts</h5>
+      <span class="text-muted small">Click any prompt to copy it — then paste into Claude, ChatGPT, or your local LLM</span>
+    </div>
+  </div>
+
+  <!-- ── 1. JD Analysis ──────────────────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-search me-1"></i>1. Analyze a Job Description
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Paste a JD to extract what they actually need vs. what they say.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">You are a senior technical recruiter and career coach. Analyze this job description for a Linux/HPC/DevOps engineer role and return:
+
+1. MUST-HAVE skills (non-negotiable requirements)
+2. NICE-TO-HAVE skills (preferred but not blocking)
+3. Hidden culture signals (startup pace, bureaucracy, research focus, etc.)
+4. Language requirement clarity (is German truly required or just "a plus"?)
+5. Company type guess (startup / scale-up / enterprise / research institute)
+6. RED FLAGS (vague comp, "we are a family", excessive requirements, etc.)
+7. A one-line verdict: APPLY / CONSIDER / SKIP — with reason
+
+Job description:
+[PASTE JD HERE]</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="0">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2. CV block tailoring ───────────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-layout-text-sidebar me-1"></i>2. Tailor a CV Block
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Reword an existing CV bullet to mirror the JD's language.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">You are a CV writing expert for senior Linux/infrastructure engineers targeting Germany and EU.
+
+CV block to tailor:
+[PASTE YOUR CV BLOCK HERE]
+
+Target job description (or key phrases from it):
+[PASTE JD EXCERPT OR KEY PHRASES]
+
+Rules:
+- Keep the factual content identical — do not invent metrics or tools
+- Mirror the JD's terminology and keyword choices
+- Write in third-person, past tense, active verbs (managed, automated, deployed…)
+- Maximum 3 concise bullet points
+- Do NOT add fluff like "contributed to" or "helped with"
+- If the JD is for a German company, output a German version below the English one</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="1">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3. English cover letter ────────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-envelope me-1"></i>3. English Cover Letter
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">For EU/international roles at German companies.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">Write a professional English cover letter for the following job. The applicant is Richard Eseke, a senior Linux Administrator with 10+ years of experience in enterprise Linux, HPC clusters, Ansible automation, VMware, and light DevOps (Terraform, Docker, GitHub Actions, Proxmox).
+
+Key background:
+- Managed 500+ production Linux systems at Herbst
+- Tier 3 Azure Linux escalation at Microsoft
+- HPC cluster work at Intel (PXE, IPMI, InfiniBand, Slurm)
+- Amazon NetBackup environment (RHEL, Bash, LDAP)
+- Current: Proxmox, Ansible, Terraform, Docker, Python, Grafana/Loki
+- Comfortable in English; learning German (currently A2-B1)
+
+Job title: [TITLE]
+Company: [COMPANY]
+Location: [LOCATION]
+Key requirements from JD: [2-4 BULLET POINTS FROM JD]
+
+Format: 3 short paragraphs. Professional but not stiff. No "I am writing to apply" opener.
+Max 250 words.</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="2">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 4. German Bewerbungsschreiben ──────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-flag me-1"></i>4. Deutsches Bewerbungsschreiben
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">For roles that require German or prefer a German application.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">Schreib ein professionelles deutsches Bewerbungsschreiben für folgende Stelle. Der Bewerber ist Richard Eseke, Senior Linux Administrator mit über 10 Jahren Erfahrung.
+
+Wichtige Stationen:
+- 500+ Linux-Systeme verwaltet (Bare Metal + VMware, Ansible-Automatisierung)
+- Tier-3 Azure-Linux-Eskalation bei Microsoft
+- HPC-Cluster-Administration bei Intel (PXE, IPMI, InfiniBand, Slurm)
+- Aktuell: Proxmox, Terraform, Docker, Python, Grafana/Loki
+- Deutschkenntnisse: A2-B1 (im Aufbau)
+
+Stellentitel: [TITEL]
+Unternehmen: [UNTERNEHMEN]
+Standort: [STANDORT]
+Wichtigste Anforderungen: [2-3 PUNKTE AUS DER STELLENBESCHREIBUNG]
+
+Format: 3 kurze Absätze im professionellen Stil. Traditionelle DIN-5008-Anrede verwenden.
+Maximale Länge: 250 Wörter.
+Hinweis: Falls Deutschkenntnisse erwünscht aber nicht zwingend sind, kurz erwähnen dass Deutsch aktiv erlernt wird.</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="3">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 5. Interview prep ───────────────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-person-check me-1"></i>5. Interview Prep (Linux/HPC/DevOps)
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Generate likely technical questions based on a JD.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">You are a senior Linux/HPC interviewer. Generate a realistic technical interview question set for this role.
+
+Job description / key tech stack: [PASTE JD OR KEY SKILLS]
+
+Produce:
+1. 5 Linux sysadmin deep-dives (networking, kernel, filesystems, troubleshooting, performance)
+2. 3 Ansible / automation questions
+3. 3 HPC-specific questions if applicable (Slurm, InfiniBand, PXE, GPU)
+4. 2 CI/CD / DevOps questions (Terraform, Docker, Kubernetes if in JD)
+5. 2 behavioral questions typical for German companies (Arbeitsweise, Konflikte)
+6. For each question: provide a strong answer outline (not a full answer — just the key points to hit)
+
+Calibrate difficulty to "senior level, 10+ years Linux experience."</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="4">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 6. Salary research ─────────────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-currency-euro me-1"></i>6. Salary Research (Germany)
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Understand what to ask for before negotiating.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">I am researching salary ranges in Germany for a senior Linux/HPC Administrator role. Help me think through this.
+
+Role details:
+- Title: [TITLE FROM JD]
+- City: [CITY]
+- Company type: [research institute / mid-size tech / enterprise / startup]
+- Years of experience: 10+
+- Key skills: Linux, Ansible, HPC/Slurm, Terraform, Docker, Python
+
+Please provide:
+1. Gross salary range (Brutto) realistic for 2025 Germany for this profile and city
+2. How Tarifvertrag (collective bargaining) affects research institute roles (TVöD, TV-L)
+3. What benefits to negotiate beyond salary (Homeoffice-Tage, Weiterbildungsbudget, Jobticket)
+4. How to phrase salary expectations when asked "Was sind Ihre Gehaltsvorstellungen?"
+5. Red lines — what's too low to accept for this profile</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="5">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 7. LinkedIn/XING outreach ──────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-person-plus me-1"></i>7. Cold Outreach (LinkedIn / XING)
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Message a hiring manager or team lead directly.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">Write a short cold outreach message (LinkedIn or XING) from Richard Eseke to a hiring manager or team lead at [COMPANY].
+
+Context:
+- Richard is a senior Linux/HPC Administrator looking for roles in Germany/EU
+- He saw the [TITLE] posting and wants to reach out directly, not just apply through the ATS
+- He has a specific connection point: [ONE THING ABOUT THE COMPANY/TEAM that genuinely interests him]
+
+Message rules:
+- Max 4 sentences
+- Do NOT open with "I hope this message finds you well"
+- Reference something specific about their tech stack or work
+- End with a low-friction ask (15-min call, happy to share CV)
+- Professional but human — not a form letter
+- Offer an English AND a German version</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="6">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 8. Application follow-up ──────────────────────────────────────── -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-send me-1"></i>8. Follow-up After Applying
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">After 10-14 days with no response.</p>
+        <pre class="prompt-box bg-light p-3 rounded small" style="white-space:pre-wrap">Write a brief follow-up email from Richard Eseke to [COMPANY] regarding his application for [TITLE], submitted [DATE].
+
+Tone: professional, not desperate, respectful of their timeline.
+Length: 3-4 sentences max.
+Goal: confirm receipt, reiterate interest, invite them to reach out with questions.
+Do not be passive-aggressive about the wait time.
+
+Provide:
+1. English version
+2. German version (formal Sie form)</pre>
+        <button class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-target="7">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Copy prompt text to clipboard on button click
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const card   = this.closest('.card-body');
+    const preEl  = card.querySelector('pre.prompt-box');
+    const text   = preEl ? preEl.textContent : '';
+
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = this.textContent;
+      this.textContent = '✓ Copied!';
+      this.classList.add('btn-success');
+      this.classList.remove('btn-outline-secondary');
+      setTimeout(() => {
+        this.textContent = orig;
+        this.classList.remove('btn-success');
+        this.classList.add('btn-outline-secondary');
+      }, 1800);
+    }).catch(() => {
+      // Fallback for non-HTTPS contexts
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      this.textContent = '✓ Copied!';
+      setTimeout(() => { this.textContent = '📋 Copy'; }, 1800);
+    });
+  });
+});
+</script>
+{% endblock %}

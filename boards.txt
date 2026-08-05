@@ -1,0 +1,17 @@
+gitlab
+grafana
+elastic
+hashicorp
+datadog
+mongodb
+cloudflare
+fastly
+digitalocean
+snowflake
+stripe
+segment
+twilio
+shopify
+openai
+scaleai
+weightsandbiases

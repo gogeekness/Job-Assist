@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "owner": "Richard Eseke",
+    "purpose": "Reusable CV building blocks for Linux, HPC, infrastructure, and light DevOps jobs"
+  },
+  "blocks": [
+    {
+      "id": "profile_linux_enterprise",
+      "title": "Enterprise Linux profile summary",
+      "keywords": [
+        "linux",
+        "rhel",
+        "ubuntu",
+        "debian",
+        "ansible",
+        "bash",
+        "python",
+        "vmware",
+        "jenkins"
+      ],
+      "text": "Seasoned Linux Administrator with over a decade of experience managing Linux systems, networking, troubleshooting, automation, and production support across enterprise and data center environments."
+    },
+    {
+      "id": "profile_hpc",
+      "title": "HPC profile summary",
+      "keywords": [
+        "hpc",
+        "cluster",
+        "slurm",
+        "infiniband",
+        "pxe",
+        "ipmi",
+        "bios",
+        "uefi",
+        "gpu"
+      ],
+      "text": "Linux Administrator with hands-on HPC experience supporting pre-production clusters, PXE-based deployments, IPMI, RAID, BIOS/UEFI upgrades, and close coordination with cluster owners in high-demand environments."
+    },
+    {
+      "id": "herbst_500_linux",
+      "title": "Herbst 500+ Linux systems block",
+      "keywords": [
+        "linux",
+        "rhel",
+        "ubuntu",
+        "vmware",
+        "ansible",
+        "python",
+        "bash",
+        "grafana",
+        "graylog",
+        "icinga",
+        "jenkins",
+        "gitlab"
+      ],
+      "text": "Managed over 500 production Linux systems across bare metal and VMware environments, automated patching and key rotation with Bash, Python, and Ansible, and integrated Icinga, Graylog, and Grafana for monitoring and diagnostics."
+    },
+    {
+      "id": "microsoft_linux_escalation",
+      "title": "Microsoft Azure Linux escalation block",
+      "keywords": [
+        "azure",
+        "linux",
+        "kernel",
+        "networking",
+        "ssh",
+        "troubleshooting",
+        "sla"
+      ],
+      "text": "Provided Tier 3 support on Microsoft’s Azure Linux escalation team, resolving complex Linux issues involving SSH, networking, kernel behavior, storage, and scaling while coordinating with vendors such as Red Hat, SUSE, and Canonical."
+    },
+    {
+      "id": "operations_ansible",
+      "title": "Operational Services automation block",
+      "keywords": [
+        "ansible",
+        "debian",
+        "ubuntu",
+        "jenkins",
+        "gitlab",
+        "ci/cd",
+        "automation",
+        "bash"
+      ],
+      "text": "Developed Ansible infrastructure code for more than 50 internal servers, automated user provisioning, package installation, storage provisioning, and patching, and maintained stable Jenkins-based testing environments."
+    },
+    {
+      "id": "intel_hpc",
+      "title": "Intel HPC cluster block",
+      "keywords": [
+        "hpc",
+        "cluster",
+        "pxe",
+        "ipmi",
+        "raid",
+        "bios",
+        "uefi",
+        "infiniband",
+        "linux",
+        "driver"
+      ],
+      "text": "Administered Intel pre-production HPC clusters, performing PXE-based cluster updates, IPMI installations, RAID storage tasks, and BIOS/UEFI upgrades while supporting cluster owners with day-to-day operational needs."
+    },
+    {
+      "id": "amazon_backup",
+      "title": "Amazon backup cluster block",
+      "keywords": [
+        "backup",
+        "netbackup",
+        "rhel",
+        "bash",
+        "aws",
+        "glacier",
+        "ldap",
+        "tape-backup"
+      ],
+      "text": "Managed NetBackup storage across Amazon EC2 backup environments, automated the processing of large backup record sets with Bash, and supported large LDAP migration efforts for hundreds of servers."
+    },
+    {
+      "id": "peer_devops_current",
+      "title": "Current Peer DevOps/Linux block",
+      "keywords": [
+        "proxmox",
+        "terraform",
+        "docker",
+        "docker compose",
+        "github actions",
+        "loki",
+        "grafana",
+        "ansible",
+        "python",
+        "ci/cd"
+      ],
+      "text": "Built and maintained Proxmox-based infrastructure, created Python-based GitHub Actions workflows with webhooks, and used Terraform, Docker Compose, Ansible, Grafana, and Loki to deploy and monitor infrastructure."
+    }
+  ]
+}

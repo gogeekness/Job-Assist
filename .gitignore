@@ -1,0 +1,15 @@
+# venv (this project dir doubles as the venv root)
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+
+__pycache__/
+*.pyc
+
+.idea/
+
+# runtime data
+jobs.db
+HPC.csv
+bool

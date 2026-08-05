@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Job Portal{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-primary">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold">{{ stats.total }}</div>
+        <div class="small">Total Jobs</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-warning">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold">{{ stats.starred }}</div>
+        <div class="small">Starred</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-success">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold">{{ stats.scored }}</div>
+        <div class="small">LLM Scored</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-info">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold">{{ stats.today }}</div>
+        <div class="small">Added Today</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <!-- Harvest controls -->
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-cloud-download me-1"></i>Harvest Sources</div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          {% for src, label, icon in [
+              ('greenhouse','Greenhouse','building'),
+              ('lever','Lever','toggles'),
+              ('arbeitnow','Arbeitnow','globe-europe-africa'),
+              ('euraxess','EURAXESS','mortarboard'),
+          ] %}
+          <button class="btn btn-outline-primary btn-sm harvest-btn"
+                  data-source="{{ src }}">
+            <i class="bi bi-{{ icon }} me-1"></i>{{ label }}
+            <span class="harvest-spinner spinner-border spinner-border-sm ms-1 d-none" role="status"></span>
+          </button>
+          {% endfor %}
+        </div>
+
+        <!-- Status display -->
+        <div id="harvest-status-wrap">
+          {% for src, info in harvest_status.items() %}
+          <div class="d-flex justify-content-between align-items-center small mb-1" id="hs-{{ src }}">
+            <span class="text-muted">{{ src }}</span>
+            <span class="badge
+              {% if info.state=='running' %}bg-primary
+              {% elif info.error %}bg-danger
+              {% else %}bg-success{% endif %}">
+              {{ info.state }}
+              {% if info.state=='done' %} — {{ info.count }} jobs{% endif %}
+              {% if info.error %} ⚠{% endif %}
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- By region -->
+  <div class="col-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-geo-alt me-1"></i>By Region</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-0">
+          {% for row in by_region %}
+          <tr>
+            <td>
+              <a href="/jobs?region={{ row.region_group }}" class="text-decoration-none">
+                <span class="badge text-bg-{{ row.region_group | region_color }}">{{ row.region_group or 'other' }}</span>
+              </a>
+            </td>
+            <td class="text-end fw-bold">{{ row.n }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- By language -->
+  <div class="col-6 col-lg-2">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-translate me-1"></i>Language</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-0">
+          {% for row in by_lang %}
+          <tr>
+            <td><a href="/jobs?language={{ row.language }}" class="text-decoration-none small">{{ row.language }}</a></td>
+            <td class="text-end fw-bold">{{ row.n }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- By source -->
+  <div class="col-6 col-lg-2">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-plug me-1"></i>Source</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-0">
+          {% for row in by_source %}
+          <tr>
+            <td><a href="/jobs?ats={{ row.ats }}" class="text-decoration-none small">{{ row.ats }}</a></td>
+            <td class="text-end fw-bold">{{ row.n }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick filter shortcuts -->
+<div class="card mb-4">
+  <div class="card-header fw-semibold"><i class="bi bi-lightning me-1"></i>Quick Filters</div>
+  <div class="card-body d-flex flex-wrap gap-2">
+    <a href="/jobs?region=berlin,germany,eu&language=english,partial_german&kw_and=linux,ansible"
+       class="btn btn-outline-secondary btn-sm">Linux + Ansible / EU</a>
+    <a href="/jobs?region=germany,eu&kw_and=hpc&kw_or=slurm,infiniband,pxe,ipmi"
+       class="btn btn-outline-secondary btn-sm">HPC / Research</a>
+    <a href="/jobs?kw_and=linux&kw_or=terraform,kubernetes,docker&language=english,partial_german"
+       class="btn btn-outline-secondary btn-sm">DevOps / Platform</a>
+    <a href="/jobs?ats=euraxess"
+       class="btn btn-outline-secondary btn-sm">EURAXESS only</a>
+    <a href="/jobs?starred=1"
+       class="btn btn-outline-warning btn-sm"><i class="bi bi-star-fill"></i> Starred</a>
+    <a href="/jobs?scored=1"
+       class="btn btn-outline-success btn-sm"><i class="bi bi-robot"></i> LLM Scored</a>
+    <a href="/jobs"
+       class="btn btn-outline-dark btn-sm">All Jobs (wide)</a>
+  </div>
+</div>
+
+<!-- Harvest log -->
+<div class="card">
+  <div class="card-header fw-semibold"><i class="bi bi-clock-history me-1"></i>Recent Harvest Log</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>Source</th><th>Started</th><th>Finished</th><th>Count</th><th>Error</th></tr>
+      </thead>
+      <tbody>
+        {% for r in recent_log %}
+        <tr>
+          <td><span class="badge bg-secondary">{{ r.source }}</span></td>
+          <td class="small text-muted">{{ r.started_at }}</td>
+          <td class="small text-muted">{{ r.finished_at or '—' }}</td>
+          <td>{{ r.count }}</td>
+          <td class="small text-danger">{{ r.error or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No harvests yet — click a source above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.harvest-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const src = btn.dataset.source;
+    const spinner = btn.querySelector('.harvest-spinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+
+    fetch('/harvest/' + src, {method: 'POST'})
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { alert(data.error); btn.disabled = false; spinner.classList.add('d-none'); return; }
+        pollStatus(src, btn, spinner);
+      })
+      .catch(e => { alert('Error: ' + e); btn.disabled = false; spinner.classList.add('d-none'); });
+  });
+});
+
+function pollStatus(src, btn, spinner) {
+  const iv = setInterval(() => {
+    fetch('/harvest/status').then(r => r.json()).then(data => {
+      const info = data[src];
+      if (!info || info.state !== 'running') {
+        clearInterval(iv);
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        location.reload();
+      }
+    });
+  }, 2000);
+}
+</script>
+{% endblock %}

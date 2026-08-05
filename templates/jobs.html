@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block title %}Jobs ({{ total }}) — Job Portal{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ── Filter sidebar ──────────────────────────────────────────────────── -->
+  <div class="col-12 col-xl-3 col-lg-4">
+    <div class="card filter-sidebar">
+      <div class="card-header d-flex justify-content-between align-items-center fw-semibold">
+        <span><i class="bi bi-funnel me-1"></i>Filters</span>
+        <a href="/jobs" class="btn btn-outline-secondary btn-sm py-0">Reset</a>
+      </div>
+      <div class="card-body p-3">
+        <form method="GET" action="/jobs" id="filterForm">
+
+          <!-- Text search -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">Title / Company</label>
+            <input type="text" name="q" class="form-control form-control-sm"
+                   placeholder="search…" value="{{ args.get('q','') }}">
+          </div>
+
+          <!-- Keyword: ALL OF (AND) -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">
+              <span class="badge tag-and me-1">ALL OF</span> (AND — every tag must match)
+            </label>
+            <div class="tag-input-wrap" id="wrap-kw-and">
+              <input type="text" placeholder="type + Enter">
+            </div>
+            <input type="hidden" name="kw_and" id="kw_and" value="{{ args.get('kw_and','') }}">
+            <div class="form-text">e.g. linux, ansible, hpc</div>
+          </div>
+
+          <!-- Keyword: ANY OF (OR) -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">
+              <span class="badge tag-or me-1">ANY OF</span> (OR — at least one must match)
+            </label>
+            <div class="tag-input-wrap" id="wrap-kw-or">
+              <input type="text" placeholder="type + Enter">
+            </div>
+            <input type="hidden" name="kw_or" id="kw_or" value="{{ args.get('kw_or','') }}">
+            <div class="form-text">e.g. terraform, kubernetes, docker</div>
+          </div>
+
+          <!-- Keyword: NONE OF (NOT) -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">
+              <span class="badge tag-not me-1">NONE OF</span> (NOT — exclude these)
+            </label>
+            <div class="tag-input-wrap" id="wrap-kw-not">
+              <input type="text" placeholder="type + Enter">
+            </div>
+            <input type="hidden" name="kw_not" id="kw_not" value="{{ args.get('kw_not','') }}">
+            <div class="form-text">e.g. salesforce, frontend, php</div>
+          </div>
+
+          <!-- Region -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1"><i class="bi bi-geo-alt"></i> Region</label>
+            {% set sel_regions = args.get('region','').split(',') %}
+            {% for r in ['berlin','germany','eu','remote','other'] %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input region-check" type="checkbox" id="r-{{ r }}"
+                     value="{{ r }}" {% if r in sel_regions %}checked{% endif %}>
+              <label class="form-check-label small" for="r-{{ r }}">{{ r }}</label>
+            </div>
+            {% endfor %}
+            <input type="hidden" name="region" id="region-hidden" value="{{ args.get('region','') }}">
+          </div>
+
+          <!-- Language -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1"><i class="bi bi-translate"></i> Language</label>
+            {% set sel_langs = args.get('language','').split(',') %}
+            {% for l, lbl in [('english','English'),('partial_german','Partial DE'),('german','German'),('unknown','Unknown')] %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input lang-check" type="checkbox" id="l-{{ l }}"
+                     value="{{ l }}" {% if l in sel_langs %}checked{% endif %}>
+              <label class="form-check-label small" for="l-{{ l }}">{{ lbl }}</label>
+            </div>
+            {% endfor %}
+            <input type="hidden" name="language" id="lang-hidden" value="{{ args.get('language','') }}">
+          </div>
+
+          <!-- ATS source -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1"><i class="bi bi-plug"></i> Source (ATS)</label>
+            {% set sel_ats = args.get('ats','').split(',') %}
+            {% for a in ['greenhouse','lever','arbeitnow','euraxess','manual'] %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input ats-check" type="checkbox" id="a-{{ a }}"
+                     value="{{ a }}" {% if a in sel_ats %}checked{% endif %}>
+              <label class="form-check-label small" for="a-{{ a }}">{{ a }}</label>
+            </div>
+            {% endfor %}
+            <input type="hidden" name="ats" id="ats-hidden" value="{{ args.get('ats','') }}">
+          </div>
+
+          <!-- Extra toggles -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">Extra</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="starred" value="1" id="chk-starred"
+                     {% if args.get('starred')=='1' %}checked{% endif %}>
+              <label class="form-check-label small" for="chk-starred"><i class="bi bi-star-fill text-warning"></i> Starred only</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="scored" value="1" id="chk-scored"
+                     {% if args.get('scored')=='1' %}checked{% endif %}>
+              <label class="form-check-label small" for="chk-scored"><i class="bi bi-robot text-success"></i> LLM scored only</label>
+            </div>
+          </div>
+
+          <!-- Sort + limit -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">Sort by</label>
+            <select name="sort" class="form-select form-select-sm">
+              {% for val,lbl in [('created_at','Date added'),('date_posted','Date posted'),('llm_score','LLM score'),('company','Company'),('title','Title'),('region_group','Region')] %}
+              <option value="{{ val }}" {% if args.get('sort','')==val %}selected{% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1">Show</label>
+            <select name="limit" class="form-select form-select-sm">
+              {% for n in [50,100,200,500,1000,5000] %}
+              <option value="{{ n }}" {% if args.get('limit','')|string==n|string %}selected{% endif %}>{{ n }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100 btn-sm mt-2">
+            <i class="bi bi-search me-1"></i>Apply Filters
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Job list ────────────────────────────────────────────────────────── -->
+  <div class="col-12 col-xl-9 col-lg-8">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="text-muted small">
+        Showing <strong>{{ jobs|length }}</strong> of <strong>{{ total }}</strong> jobs
+        {% if args.get('kw_and') or args.get('kw_or') or args.get('kw_not') %}
+          <span class="ms-2">
+            {% if args.get('kw_and') %}
+              <span class="badge tag-and">ALL: {{ args.kw_and }}</span>
+            {% endif %}
+            {% if args.get('kw_or') %}
+              <span class="badge tag-or">ANY: {{ args.kw_or }}</span>
+            {% endif %}
+            {% if args.get('kw_not') %}
+              <span class="badge tag-not">NOT: {{ args.kw_not }}</span>
+            {% endif %}
+          </span>
+        {% endif %}
+      </span>
+      <div class="d-flex gap-2">
+        <a href="/export?{{ request.query_string.decode() }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-download me-1"></i>Export CSV
+        </a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:30px"></th>
+              <th>Company</th>
+              <th>Title</th>
+              <th>Location</th>
+              <th>Lang</th>
+              <th>Source</th>
+              <th>Score</th>
+              <th>Posted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for j in jobs %}
+            <tr class="job-row">
+              <td>
+                <button class="star-btn {% if j.starred %}starred{% endif %}"
+                        data-id="{{ j.id }}" title="Star/unstar">
+                  {{ '★' if j.starred else '☆' }}
+                </button>
+              </td>
+              <td class="small">{{ j.company or '—' }}</td>
+              <td>
+                <a href="/jobs/{{ j.id }}" class="text-decoration-none fw-semibold">
+                  {{ j.title or '(no title)' }}
+                </a>
+                {% if j.keywords_raw %}
+                <div class="text-muted" style="font-size:.7rem">
+                  {{ j.keywords_raw[:80] }}{% if j.keywords_raw|length > 80 %}…{% endif %}
+                </div>
+                {% endif %}
+              </td>
+              <td class="small">
+                <span class="badge text-bg-{{ j.region_group | region_color }}">
+                  {{ j.region_group or 'other' }}
+                </span>
+                <span class="text-muted">{{ j.city or j.country or j.location or '' }}</span>
+              </td>
+              <td class="small">
+                {% if j.language == 'english' %}
+                  <span class="badge bg-success">EN</span>
+                {% elif j.language == 'partial_german' %}
+                  <span class="badge bg-info text-dark">EN+DE</span>
+                {% elif j.language == 'german' %}
+                  <span class="badge bg-warning text-dark">DE</span>
+                {% else %}
+                  <span class="badge bg-secondary">?</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ j.ats or j.source_type or '—' }}</td>
+              <td>
+                {% if j.llm_score is not none %}
+                  <span class="score-pill {% if j.llm_score >= 7 %}score-hi{% elif j.llm_score >= 4 %}score-mid{% else %}score-lo{% endif %}">
+                    {{ "%.1f"|format(j.llm_score) }}
+                  </span>
+                {% else %}
+                  <span class="score-pill score-none">—</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ (j.date_posted or j.created_at or '')[:10] }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="8" class="text-center text-muted py-4">
+                No jobs match current filters.
+                <a href="/jobs">Clear all filters</a> or
+                <a href="/">harvest more jobs</a>.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if total > limit %}
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm justify-content-center">
+        {% set pages = (total // limit) + (1 if total % limit else 0) %}
+        {% set cur_page = offset // limit %}
+        {% for p in range(pages) %}
+          {% if p < 3 or p > pages-4 or (p - cur_page)|abs < 3 %}
+          <li class="page-item {% if p == cur_page %}active{% endif %}">
+            <a class="page-link"
+               href="/jobs?{{ request.query_string.decode()|replace('&offset='+offset|string,'') }}&offset={{ p*limit }}">
+              {{ p+1 }}
+            </a>
+          </li>
+          {% elif (p - cur_page)|abs == 3 %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Init tag inputs with pre-existing values from URL params
+initTagInput('wrap-kw-and', 'kw_and', 'tag-and');
+initTagInput('wrap-kw-or',  'kw_or',  'tag-or');
+initTagInput('wrap-kw-not', 'kw_not', 'tag-not');
+
+// Checkbox → hidden field syncing for multi-select groups
+function syncCheckboxes(cls, hiddenId) {
+  function update() {
+    const vals = [...document.querySelectorAll('.' + cls + ':checked')].map(c => c.value);
+    document.getElementById(hiddenId).value = vals.join(',');
+  }
+  document.querySelectorAll('.' + cls).forEach(c => c.addEventListener('change', update));
+}
+syncCheckboxes('region-check', 'region-hidden');
+syncCheckboxes('lang-check',   'lang-hidden');
+syncCheckboxes('ats-check',    'ats-hidden');
+
+// Star toggle
+document.querySelectorAll('.star-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    fetch('/jobs/' + id + '/star', {method:'POST'})
+      .then(r => r.json())
+      .then(data => {
+        btn.textContent = data.starred ? '★' : '☆';
+        btn.classList.toggle('starred', !!data.starred);
+      });
+  });
+});
+</script>
+{% endblock %}
