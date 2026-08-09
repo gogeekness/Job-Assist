@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}CV Review — {{ job.company }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">CV Review — {{ job.title }}</h4>
+    <span class="text-muted small">{{ job.company }} — {{ job.location }}</span>
+  </div>
+  <div class="d-flex gap-2">
+    <span class="badge {% if job.cv_status == 'approved' %}text-bg-success{% else %}text-bg-secondary{% endif %} align-self-center">
+      {{ job.cv_status or 'not generated' }}
+    </span>
+    <a href="/jobs/{{ job.id }}" class="btn btn-outline-secondary btn-sm">Back to Job</a>
+  </div>
+</div>
+
+{% if compile_error %}
+<div class="alert alert-danger">
+  <strong>Compile failed</strong> — your edits were saved but did not compile. Fix the LaTeX below and recompile.
+  <pre class="small mb-0 mt-2" style="max-height:200px; overflow:auto;">{{ compile_error }}</pre>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- PDF preview -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-pdf me-1"></i>PDF Preview</span>
+        {% if job.cv_pdf_path %}
+        <a href="/generated/{{ job.id }}/cv.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-download me-1"></i>Open / Download
+        </a>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        {% if job.cv_pdf_path %}
+        <embed src="/generated/{{ job.id }}/cv.pdf" type="application/pdf" style="width:100%; height:80vh;">
+        {% else %}
+        <div class="p-4 text-muted">No PDF yet — recompile to generate one.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Editable .tex -->
+  <div class="col-12 col-lg-6">
+    <form method="POST" action="/jobs/{{ job.id }}/cv/recompile" class="h-100 d-flex flex-column">
+      <div class="card h-100">
+        <div class="card-header fw-semibold">
+          <i class="bi bi-code-slash me-1"></i>LaTeX source
+          <span class="text-muted small ms-2">edit factual content here, then recompile</span>
+        </div>
+        <div class="card-body p-2">
+          <textarea name="tex_content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
+                    spellcheck="false">{{ tex_content }}</textarea>
+        </div>
+        <div class="card-footer d-flex gap-2 justify-content-between">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-arrow-clockwise me-1"></i>Recompile
+          </button>
+          <div class="d-flex gap-2">
+            <form method="POST" action="/jobs/{{ job.id }}/generate_cv">
+              <button type="submit" class="btn btn-outline-secondary btn-sm"
+                      onclick="return confirm('Regenerate from scratch? Manual edits will be lost.')">
+                <i class="bi bi-arrow-repeat me-1"></i>Regenerate from scratch
+              </button>
+            </form>
+            <form method="POST" action="/jobs/{{ job.id }}/cv/approve">
+              <button type="submit" class="btn btn-success btn-sm" {% if not job.cv_pdf_path %}disabled{% endif %}>
+                <i class="bi bi-check2-circle me-1"></i>Approve
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if job.cv_status == 'approved' and job.url %}
+<div class="alert alert-success mt-3 d-flex justify-content-between align-items-center">
+  <span><i class="bi bi-check2-circle me-1"></i>CV approved. Apply using the PDF above and the original posting.</span>
+  <a href="{{ job.url }}" target="_blank" class="btn btn-success btn-sm">
+    <i class="bi bi-box-arrow-up-right me-1"></i>Open Posting to Apply
+  </a>
+</div>
+{% endif %}
+{% endblock %}

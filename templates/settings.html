@@ -59,26 +59,58 @@
     </div>
   </div>
 
-  <!-- CV blocks -->
+  <!-- CV bullet bank -->
   <div class="col-12">
     <div class="card">
       <div class="card-header fw-semibold">
-        <i class="bi bi-layout-text-sidebar me-1"></i>CV Blocks
-        <span class="text-muted small ms-2">cv_blocks_template.json — edit with care, must be valid JSON</span>
+        <i class="bi bi-layout-text-sidebar me-1"></i>CV Bullet Bank
+        <span class="text-muted small ms-2">unified bullet store — csv + LaTeX CVs + CV archive</span>
       </div>
       <div class="card-body">
-        <form method="POST" action="/settings/cv_blocks">
-          <textarea name="cv_blocks" class="form-control font-monospace" rows="20"
-                    id="cv-blocks-area">{{ cv_blocks }}</textarea>
-          <div class="d-flex gap-2 mt-2">
-            <button type="submit" class="btn btn-primary btn-sm">
-              <i class="bi bi-save me-1"></i>Save cv_blocks_template.json
-            </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="validate-json-btn">
-              Validate JSON
-            </button>
+        <div class="d-flex flex-wrap gap-4 mb-3">
+          <div><span class="text-muted small">Total bullets</span><div class="fs-4 fw-bold">{{ bank_stats.total }}</div></div>
+          <div><span class="text-muted small">From CSV</span><div class="fs-5 fw-bold">{{ bank_stats.csv }}</div></div>
+          <div><span class="text-muted small">From .tex</span><div class="fs-5 fw-bold">{{ bank_stats.tex }}</div></div>
+          <div><span class="text-muted small">From .odt archive</span><div class="fs-5 fw-bold">{{ bank_stats.odt }}</div></div>
+        </div>
+
+        <form method="POST" action="/settings/cv_paths" class="mb-3">
+          <p class="text-muted small mb-2">
+            These paths are machine-specific — override them here instead of relying on the
+            <code>LateX_Docs/</code> and <code>CVs_Job_Dos/</code> symlinks at the repo root.
+            Leave a field blank to keep the current default.
+          </p>
+          <div class="mb-2">
+            <label class="form-label small">Bullet-bank CSV path
+              {% if not bank_stats.csv_exists %}<span class="text-danger">— not found</span>{% endif %}
+            </label>
+            <input type="text" name="csv_path" class="form-control form-control-sm font-monospace"
+                   placeholder="{{ bank_stats.csv_path }}">
           </div>
-          <div id="json-status" class="small mt-1"></div>
+          <div class="mb-2">
+            <label class="form-label small">LaTeX CVs directory
+              {% if not bank_stats.tex_exists %}<span class="text-danger">— not found</span>{% endif %}
+            </label>
+            <input type="text" name="tex_dir" class="form-control form-control-sm font-monospace"
+                   placeholder="{{ bank_stats.tex_dir }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">CV / cover-letter archive directory
+              {% if not bank_stats.odt_exists %}<span class="text-danger">— not found</span>{% endif %}
+            </label>
+            <input type="text" name="odt_dir" class="form-control form-control-sm font-monospace"
+                   placeholder="{{ bank_stats.odt_dir }}">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-save me-1"></i>Save paths
+          </button>
+        </form>
+
+        <form method="POST" action="/settings/rebuild_bullets">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-clockwise me-1"></i>Rebuild bullet store
+          </button>
+          <span class="text-muted small ms-2">re-scans all sources — do this after editing the CSV or adding new CVs</span>
         </form>
       </div>
     </div>
@@ -121,20 +153,4 @@
   </div>
 
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.getElementById('validate-json-btn').addEventListener('click', function() {
-  const status = document.getElementById('json-status');
-  try {
-    JSON.parse(document.getElementById('cv-blocks-area').value);
-    status.textContent = '✓ Valid JSON';
-    status.className = 'small mt-1 text-success';
-  } catch(e) {
-    status.textContent = '✗ ' + e.message;
-    status.className = 'small mt-1 text-danger';
-  }
-});
-</script>
 {% endblock %}

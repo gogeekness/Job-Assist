@@ -1,4 +1,5 @@
-# venv (this project dir doubles as the venv root)
+# venv
+.venv/
 Include/
 Lib/
 Scripts/
@@ -13,3 +14,18 @@ __pycache__/
 jobs.db
 HPC.csv
 bool
+
+# personal career data - never enters git history
+# (no trailing slash: LateX_Docs/CVs_Job_Dos are symlinks, and a
+# trailing-slash pattern only matches real directories, not symlinks
+# to directories -- would silently NOT exclude them otherwise)
+richard_cv_master_bullet_bank_g_update.csv
+LateX_Docs
+CVs_Job_Dos
+generated/
+
+# local settings/config (user-specific paths, API keys)
+.env
+config.local.json
+bullet_store_cache.json
+profile.local.json

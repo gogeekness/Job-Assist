@@ -155,6 +155,8 @@ def _anthropic_rate(job: dict, cv_blocks: list) -> dict:
         import anthropic
     except ImportError:
         raise RuntimeError("Run: pip3.12 install anthropic --break-system-packages")
+    if "ANTHROPIC_API_KEY" not in os.environ:
+        raise RuntimeError("Set ANTHROPIC_API_KEY to use LLM_BACKEND=anthropic")
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
@@ -179,6 +181,8 @@ def _openai_rate(job: dict, cv_blocks: list) -> dict:
         from openai import OpenAI
     except ImportError:
         raise RuntimeError("Run: pip3.12 install openai --break-system-packages")
+    if "OPENAI_API_KEY" not in os.environ:
+        raise RuntimeError("Set OPENAI_API_KEY to use LLM_BACKEND=openai")
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     resp = client.chat.completions.create(

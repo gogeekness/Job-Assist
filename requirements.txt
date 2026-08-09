@@ -1,0 +1,16 @@
+# Job-Assist core app (Flask UI, harvesters, cv_bank, generate_cv)
+flask
+jinja2
+requests
+feedparser
+anthropic
+
+# vendored jobspy/ (speedyapply/JobSpy) dependencies - not pip installed as a
+# package, imported directly from ./jobspy, but it needs these to run
+beautifulsoup4
+pandas
+numpy
+pydantic
+tls-client
+markdownify
+regex

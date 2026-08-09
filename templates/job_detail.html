@@ -42,6 +42,18 @@
               <i class="bi bi-box-arrow-up-right me-1"></i>Open Posting
             </a>
             {% endif %}
+            {% if job.cv_status %}
+            <a href="/jobs/{{ job.id }}/cv" class="btn btn-outline-success btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>Review CV
+              <span class="badge {% if job.cv_status == 'approved' %}text-bg-success{% else %}text-bg-secondary{% endif %} ms-1">{{ job.cv_status }}</span>
+            </a>
+            {% else %}
+            <form method="POST" action="/jobs/{{ job.id }}/generate_cv">
+              <button type="submit" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-magic me-1"></i>Generate CV
+              </button>
+            </form>
+            {% endif %}
             <a href="/jobs" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-arrow-left me-1"></i>Back to Jobs
             </a>
@@ -96,7 +108,7 @@
             {% endif %}
             {% if parsed.get('block_matches') %}
             <div class="mb-2">
-              <strong class="small d-block mb-1">CV blocks to use</strong>
+              <strong class="small d-block mb-1">CV bullets to use</strong>
               {% for b in parsed.block_matches %}
                 <span class="badge text-bg-primary me-1 mb-1">{{ b }}</span>
               {% endfor %}
@@ -115,7 +127,7 @@
             </div>
           {% endif %}
         {% else %}
-          <p class="text-muted small">Not rated yet. Click "Rate Job" to score against your CV blocks.</p>
+          <p class="text-muted small">Not rated yet. Click "Rate Job" to score against your CV bullet bank.</p>
           <p class="text-muted" style="font-size:.75rem">
             Default uses keyword scoring (stub).<br>
             Set <code>LLM_BACKEND=anthropic</code>, <code>openai</code>, or <code>ollama</code> for AI ratings.
@@ -140,32 +152,42 @@
     </div>
   </div>
 
-  <!-- ── CV block matches ───────────────────────────────────────────── -->
-  {% if scored_blocks %}
+  <!-- ── CV bullet matches ──────────────────────────────────────────── -->
+  {% if scored_bullets %}
   <div class="col-12">
     <div class="card">
       <div class="card-header fw-semibold">
-        <i class="bi bi-layout-text-sidebar me-1"></i>CV Block Matches
-        <span class="badge text-bg-secondary ms-1">{{ scored_blocks | length }}</span>
+        <i class="bi bi-layout-text-sidebar me-1"></i>CV Bullet Matches
+        <span class="badge text-bg-secondary ms-1">{{ scored_bullets | length }}</span>
         <span class="text-muted small ms-2">— use the top 4-6 for your tailored CV</span>
       </div>
       <div class="card-body">
         <div class="row g-3">
-          {% for b in scored_blocks %}
+          {% for b in scored_bullets %}
           <div class="col-12 col-md-6">
             <div class="card border-0 bg-light h-100">
               <div class="card-body p-3">
                 <div class="d-flex justify-content-between mb-1">
-                  <span class="fw-semibold small">{{ b.title }}</span>
-                  <span class="score-pill {% if b.score >= 20 %}score-hi{% elif b.score >= 10 %}score-mid{% else %}score-lo{% endif %}">
-                    {{ b.score }} pts
+                  <span class="fw-semibold small">{{ b.position_title or b.employer or b.id }}</span>
+                  <span class="score-pill {% if b.match_score >= 20 %}score-hi{% elif b.match_score >= 10 %}score-mid{% else %}score-lo{% endif %}">
+                    {{ b.match_score }} pts
                   </span>
                 </div>
-                <p class="small mb-2">{{ b.text }}</p>
-                <div class="d-flex flex-wrap gap-1">
-                  {% for kw in b.get('keywords', []) %}
+                <p class="small mb-2">
+                  {% set en_variant = b.variants | selectattr('lang', 'equalto', 'en') | list %}
+                  {% if en_variant %}{{ en_variant[0].text }}
+                  {% elif b.variants %}{{ b.variants[0].text }} <span class="badge text-bg-secondary" style="font-size:.65rem">DE</span>
+                  {% endif %}
+                </p>
+                <div class="d-flex flex-wrap gap-1 mb-1">
+                  {% for kw in b.get('skill_tags', []) %}
                   <span class="badge text-bg-light border" style="font-size:.7rem;color:#333">{{ kw }}</span>
                   {% endfor %}
+                </div>
+                <div class="text-muted" style="font-size:.7rem">
+                  strength {{ b.rating.strength }} · wording {{ b.rating.wording }}
+                  {% if b.placement_flexible %}· flexible placement{% endif %}
+                  {% if b.anchor %}· always-include{% endif %}
                 </div>
               </div>
             </div>
@@ -175,10 +197,10 @@
       </div>
     </div>
   </div>
-  {% elif all_blocks %}
+  {% elif bullet_bank_loaded %}
   <div class="col-12">
     <div class="alert alert-info">
-      No CV blocks matched this job's keywords. Consider adding relevant keywords to your blocks in
+      No CV bullets matched this job's keywords. Check your bullet-bank sources in
       <a href="/settings">Settings</a>.
     </div>
   </div>

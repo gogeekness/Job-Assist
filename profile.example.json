@@ -1,0 +1,22 @@
+{
+  "name": "Your Name",
+  "default_title": "Senior Linux Administrator",
+  "location": "City, Country",
+  "phone": "+00 000000000",
+  "email": "you@example.com",
+  "nationality": "Your Nationality",
+  "links": [
+    {"label": "LinkedIn", "url": "https://www.linkedin.com/in/you/"}
+  ],
+  "photo_path": "",
+  "education": [
+    {"school": "Your University", "degree": "Bachelor's Degree: Computer Science", "year": "2000"}
+  ],
+  "certificates": [
+    {"name": "LPIC1", "id": "LPI000000000", "date": "June 2012"}
+  ],
+  "languages": [
+    {"name": "English", "level": "Fluent"},
+    {"name": "German", "level": "B1"}
+  ]
+}

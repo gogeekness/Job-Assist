@@ -1,0 +1,194 @@
+% Structure matches LateX_Docs/cv_Linux_Admin-en.tex: manual two-page,
+% two-column sidebar layout, plain pdflatex, no paracol/eso-pic.
+\documentclass[10.5pt]{extarticle}
+
+\usepackage[a4paper, top=0.6cm, bottom=0.6cm, left=0.6cm, right=0.6cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{ragged2e}
+\usepackage[T1]{fontenc}
+
+\IfFileExists{DejaVuSans.sty}{%
+  \usepackage{DejaVuSans}%
+}{%
+  \IfFileExists{tgheros.sty}{%
+    \usepackage[scaled]{tgheros}%
+  }{}%
+}
+\renewcommand{\familydefault}{\sfdefault}
+
+\definecolor{sidebar}{HTML}{2F6D92}
+\definecolor{barshade}{HTML}{ECECEC}
+\definecolor{darktext}{HTML}{1A1A1A}
+\definecolor{sidebartext}{HTML}{FFFFFF}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\fboxsep}{9pt}
+\color{darktext}
+
+\newlength{\sidebarwidth}
+\newlength{\sidebartextwidth}
+\newlength{\maincolwidth}
+\setlength{\sidebarwidth}{5.2cm}
+\setlength{\sidebartextwidth}{\dimexpr\sidebarwidth-2\fboxsep\relax}
+\setlength{\maincolwidth}{\dimexpr\textwidth-\sidebarwidth-0.4cm\relax}
+
+\newlength{\jobgap}
+\setlength{\jobgap}{10pt}
+\newlength{\sidespace}
+\setlength{\sidespace}{16pt}
+
+\newcommand{\sideskill}[1]{\vspace{4pt}\textbf{#1}\par}
+
+\newcommand{\jobheader}[4]{%
+  \noindent
+  \colorbox{barshade}{%
+    \begin{minipage}[t]{\maincolwidth}
+      \large
+      \textbf{#1}\hfill\textbf{#2}\\
+      \textbf{#3}\hfill\textbf{#4}
+    \end{minipage}%
+  }\\[2pt]
+}
+
+\newcommand{\sidebarbox}[1]{%
+  \colorbox{sidebar}{%
+    \begin{minipage}[t][\dimexpr\textheight-24pt\relax][t]{\sidebartextwidth}
+      \small
+      \color{sidebartext}
+      #1
+    \end{minipage}%
+  }%
+}
+
+\begin{document}
+
+% ============================================================
+%  PAGE 1
+% ============================================================
+\noindent
+\sidebarbox{%
+\BLOCK{if photo_path}
+  \begin{center}
+    \reflectbox{\includegraphics[width=3cm]{\VAR{photo_path}}}
+  \end{center}
+  \vspace{10pt}
+\BLOCK{endif}
+
+  \textbf{\LARGE Details:}\\
+  \VAR{location}\\
+  \VAR{phone}\\
+  \href{mailto:\VAR{email}}{\VAR{email}}
+
+  \vspace{\sidespace}
+  \textbf{\large Nationality:}\\
+  {\large \VAR{nationality}}
+
+\BLOCK{if links}
+  \vspace{\sidespace}
+  \textbf{\large Links:}\\
+\BLOCK{for link in links}
+  \href{\VAR{link.url}}{\VAR{link.label}}\\
+\BLOCK{endfor}
+\BLOCK{endif}
+
+  \vspace{\sidespace}
+  \textbf{\LARGE Skills:}
+\BLOCK{for cat in skill_categories}
+
+  {\large\sideskill{\VAR{cat.label}}\par}
+  \begin{itemize}[leftmargin=1.1em, itemsep=0pt, topsep=2pt]
+\BLOCK{for item in cat.skills}
+    \item \VAR{item}
+\BLOCK{endfor}
+  \end{itemize}
+\BLOCK{endfor}
+}%
+\hfill
+\begin{minipage}[t]{\maincolwidth}
+  \vspace{\fboxsep}
+{\Huge\textbf{\VAR{name}}\par}
+\vspace{2pt}
+{\LARGE\textbf{\VAR{title}}\par}
+\vspace{8pt}
+
+{\large \VAR{intro} \par}
+
+\vspace{\jobgap}
+
+\BLOCK{for g in page1_groups}
+\jobheader{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}{}
+{\large $\Delta$ \VAR{g.summary} \par}
+\BLOCK{if g.bullets}
+\begin{itemize}[leftmargin=1.2em, itemsep=2pt, topsep=4pt]
+\BLOCK{for bullet in g.bullets}
+  \item \VAR{bullet}
+\BLOCK{endfor}
+\end{itemize}
+\BLOCK{endif}
+
+\vspace{\jobgap}
+\BLOCK{endfor}
+\end{minipage}
+
+\newpage
+
+% ============================================================
+%  PAGE 2
+% ============================================================
+\noindent
+\sidebarbox{%
+\BLOCK{if education}
+  \vspace{10pt}
+  \textbf{\LARGE Education:}\\
+  \vspace{6pt}
+\BLOCK{for e in education}
+  \VAR{e.school}\\
+  \VAR{e.degree}\\
+  \VAR{e.year}\\
+  \vspace{6pt}
+\BLOCK{endfor}
+\BLOCK{endif}
+
+\BLOCK{if certificates}
+  \vspace{\sidespace}
+  \textbf{\LARGE Certificates:}\\
+  \vspace{6pt}
+\BLOCK{for c in certificates}
+  \textbf{\large \VAR{c.name}} \\ \VAR{c.id} \\ \VAR{c.date}\\
+  \vspace{6pt}
+\BLOCK{endfor}
+\BLOCK{endif}
+
+\BLOCK{if languages}
+  \vspace{\sidespace}
+  \textbf{\Large Languages:}\\
+  \vspace{6pt}
+\BLOCK{for lang in languages}
+  \VAR{lang.name} (\VAR{lang.level})\\
+  \vspace{6pt}
+\BLOCK{endfor}
+\BLOCK{endif}
+}%
+\hfill
+\begin{minipage}[t]{\maincolwidth}
+
+\BLOCK{for g in page2_groups}
+\jobheader{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}{}
+{\large $\Delta$ \VAR{g.summary} \par}
+\BLOCK{if g.bullets}
+\begin{itemize}[leftmargin=1.2em, itemsep=2pt, topsep=4pt]
+\BLOCK{for bullet in g.bullets}
+  \item \VAR{bullet}
+\BLOCK{endfor}
+\end{itemize}
+\BLOCK{endif}
+
+\vspace{\jobgap}
+\BLOCK{endfor}
+\end{minipage}
+
+\end{document}

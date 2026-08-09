@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -33,7 +34,7 @@ BASE         = Path(__file__).parent
 DB_PATH      = BASE / "jobs.db"
 BOARDS_FILE  = BASE / "boards.txt"
 LEVER_FILE   = BASE / "lever_companies.txt"
-BLOCKS_FILE  = BASE / "cv_blocks_template.json"
+LOCAL_CONFIG_PATH = BASE / "config.local.json"
 
 TIMEOUT = 20
 
@@ -102,10 +103,14 @@ CREATE TABLE IF NOT EXISTS harvest_log (
 
 # Columns added after initial schema — safe to apply on upgrade
 EXTRA_COLS = [
-    ("starred",   "INTEGER DEFAULT 0"),
-    ("notes",     "TEXT"),
-    ("llm_score", "REAL"),
-    ("llm_notes", "TEXT"),
+    ("starred",       "INTEGER DEFAULT 0"),
+    ("notes",         "TEXT"),
+    ("llm_score",     "REAL"),
+    ("llm_notes",     "TEXT"),
+    ("cv_status",     "TEXT"),       # NULL | 'generated' | 'approved'
+    ("cv_tex_path",   "TEXT"),
+    ("cv_pdf_path",   "TEXT"),
+    ("cv_generated_at", "TEXT"),
 ]
 
 # ── geo / language data ────────────────────────────────────────────────────────
@@ -126,6 +131,40 @@ EU_COUNTRIES = {
     "czechia","denmark","sweden","finland","slovakia","slovenia","croatia",
     "hungary","romania","bulgaria","luxembourg","latvia","lithuania","estonia",
     "malta","cyprus","greece","switzerland","norway","iceland",
+}
+
+# jobspy/Indeed often return "City, Region, XX" with an ISO country code
+# instead of a spelled-out name (e.g. "Milano, LOM, IT") -- EU_COUNTRIES
+# substring matching alone misses these entirely.
+ISO_COUNTRY_CODES = {
+    "de": "Germany", "es": "Spain", "pt": "Portugal", "it": "Italy", "mt": "Malta",
+    "at": "Austria", "fr": "France", "nl": "Netherlands", "be": "Belgium",
+    "ie": "Ireland", "pl": "Poland", "cz": "Czech Republic", "dk": "Denmark",
+    "se": "Sweden", "fi": "Finland", "sk": "Slovakia", "si": "Slovenia",
+    "hr": "Croatia", "hu": "Hungary", "ro": "Romania", "bg": "Bulgaria",
+    "lu": "Luxembourg", "lv": "Latvia", "lt": "Lithuania", "ee": "Estonia",
+    "cy": "Cyprus", "gr": "Greece", "ch": "Switzerland", "no": "Norway",
+    "is": "Iceland",
+}
+
+# Common function words used to catch a posting written in a language
+# other than English/German (the LANGUAGE_HINTS below detect *requirement*
+# phrases like "fluent German", not what language the ad itself is in --
+# a fully Italian/Spanish/French ad matches none of those hints and fell
+# through as "unknown" instead of being recognized as non-English).
+ENGLISH_STOPWORDS = {
+    "the","and","of","to","in","for","with","is","are","we","our","you",
+    "your","a","an","on","as","this","that","will","be","have","has","or",
+    "at","from","by","team","role","work","experience",
+}
+FOREIGN_STOPWORDS = {  # Italian/Spanish/French/Portuguese/Dutch/Polish, deliberately overlapping
+    "il","lo","gli","le","di","che","per","con","non","è","sono","siamo",
+    "dei","delle","un","una","questo","questa","nostro","azienda","lavoro",
+    "el","los","las","es","somos","empresa","trabajo","experiencia",
+    "des","pas","est","sommes","notre","entreprise","travail","expérience",
+    "o","os","as","não","é","nossa","trabalho","experiência",
+    "de","het","een","van","dat","voor","niet","zijn","onze","bedrijf","werk",
+    "i","w","na","z","do","nie","jest","jestem","nasz","firma","praca",
 }
 
 LANGUAGE_HINTS = {
@@ -169,11 +208,34 @@ def strip_html(text):
         return ""
     return normalize_space(html.unescape(re.sub(r"<[^>]+>", " ", text)))
 
+def detect_content_language(text):
+    """Rough guess at the actual language the posting is written in
+    (distinct from LANGUAGE_HINTS, which detects language *requirement*
+    phrases). Returns 'foreign', 'english', or None if too short/unclear
+    to judge. Not precise about *which* foreign language -- only whether
+    it's predominantly non-English, which is all the EU-country filter
+    needs."""
+    words = re.findall(r"[a-zà-ÿ]+", text)
+    if len(words) < 20:
+        return None
+    total = len(words)
+    en_ratio = sum(1 for w in words if w in ENGLISH_STOPWORDS) / total
+    foreign_ratio = sum(1 for w in words if w in FOREIGN_STOPWORDS) / total
+    if foreign_ratio > 0.08 and foreign_ratio > en_ratio * 1.5:
+        return "foreign"
+    if en_ratio > 0.05:
+        return "english"
+    return None
+
 def detect_language(text):
     t = text.lower()
+    if detect_content_language(t) == "foreign":
+        return "foreign"
     for level in ("german", "partial_german", "english"):
         if any(h in t for h in LANGUAGE_HINTS[level]):
             return level
+    if detect_content_language(t) == "english":
+        return "english"
     return "unknown"
 
 def detect_international(text):
@@ -200,6 +262,15 @@ def parse_location(location) -> Tuple[str, str, str]:
                 country = c.title()
                 region_group = "eu"
                 break
+
+    if not country:
+        # fallback: trailing ISO country code, e.g. "Milano, LOM, IT"
+        parts = [p.strip() for p in (location or "").split(",")]
+        if parts and len(parts[-1]) == 2:
+            iso = ISO_COUNTRY_CODES.get(parts[-1].lower())
+            if iso:
+                country = iso
+                region_group = "germany" if iso == "Germany" else "eu"
 
     # override specifics
     if "berlin" in lower:
@@ -245,6 +316,12 @@ def ensure_schema():
     conn.close()
 
 def upsert_job(conn, rec: dict):
+    # Locked-in filtering rule: non-Germany EU postings must be English --
+    # a posting confidently detected as written in another language is
+    # hard-excluded (not just flagged) here, uniformly across every
+    # harvester, rather than relying on each one to remember the rule.
+    if rec.get("region_group") == "eu" and rec.get("language") == "foreign":
+        return
     cols = [
         "source","source_type","ats","external_id","company","company_size",
         "title","location","city","country","region_group","language",
@@ -476,11 +553,225 @@ def _do_harvest_euraxess():
     conn.close()
     _set_status(source, "done", count, error)
 
+JOBSPY_DIR = BASE / "jobspy"
+JOB_SCRAPER_DIR = BASE / "job-scraper"
+if str(JOBSPY_DIR) not in sys.path:
+    sys.path.insert(0, str(JOBSPY_DIR))
+if str(JOB_SCRAPER_DIR) not in sys.path:
+    sys.path.insert(0, str(JOB_SCRAPER_DIR))
+
+# IT/Linux search scope (per decision: filter to IT positions, Linux as
+# primary skill; other EU countries need English-only postings — enforced
+# via detect_language()/region_group downstream, not baked into the query).
+IT_SEARCH_LOCATIONS = [
+    ("Germany",  "germany"),
+    ("Spain",    "spain"),
+    ("Portugal", "portugal"),
+    ("Italy",    "italy"),
+    ("Malta",    "malta"),
+]
+IT_SEARCH_TERMS = ["Linux system administrator", "DevOps engineer Linux"]
+
+def _do_harvest_jobspy():
+    """speedyapply/JobSpy — reaches LinkedIn/Indeed/Glassdoor/ZipRecruiter,
+    which the API-only harvesters above can't touch."""
+    source = "jobspy"
+    _set_status(source, "running")
+    conn = connect_db()
+    lid = _log_start(conn, source)
+    count, error = 0, None
+    try:
+        import jobspy
+
+        def _cell(row, key, default=""):
+            # pandas NaN cells are truthy in Python (`nan or ""` -> nan),
+            # so `str(row.get(key) or default)` silently produces the
+            # literal string "nan" instead of falling back to default.
+            val = row.get(key)
+            try:
+                if val is None or (isinstance(val, float) and val != val):  # NaN != NaN
+                    return default
+            except Exception:
+                pass
+            return str(val) if val else default
+
+        sites = ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
+        for location_name, country_code in IT_SEARCH_LOCATIONS:
+            for term in IT_SEARCH_TERMS:
+                try:
+                    df = jobspy.scrape_jobs(
+                        site_name=sites, search_term=term,
+                        location=location_name, country_indeed=country_code,
+                        results_wanted=15, hours_old=336,
+                        linkedin_fetch_description=True,
+                    )
+                except Exception as e:
+                    error = f"{location_name}/{term}: {e}"
+                    continue
+                if df is None or df.empty:
+                    continue
+                for _, row in df.iterrows():
+                    title   = _cell(row, "title")
+                    company = _cell(row, "company")
+                    location = _cell(row, "location", location_name)
+                    desc    = strip_html(_cell(row, "description"))
+                    url     = _cell(row, "job_url")
+                    site    = _cell(row, "site", "jobspy")
+                    combined = f"{title} {company} {location} {desc}"
+                    city, country, rg = parse_location(location)
+                    upsert_job(conn, {
+                        "source": "jobspy", "source_type": "board",
+                        "ats": site, "external_id": _cell(row, "id", url),
+                        "company": company, "company_size": None,
+                        "title": title, "location": location, "city": city,
+                        "country": country or location_name, "region_group": rg,
+                        "language": detect_language(combined),
+                        "international_flag": detect_international(combined),
+                        "recruiter_flag": 0, "direct_company_flag": 0,
+                        "url": url,
+                        "date_posted": _cell(row, "date_posted"),
+                        "description": desc,
+                        "keywords_raw": extract_keywords(combined),
+                        "normalized_text": normalize_space(combined.lower()),
+                        "created_at": now_iso(),
+                    })
+                    count += 1
+                conn.commit()
+    except Exception as e:
+        error = str(e)
+    _log_finish(conn, lid, count, error)
+    conn.close()
+    _set_status(source, "done", count, error)
+
+
+# LinkedIn geoIds (numeric, LinkedIn-internal, stable across their APIs)
+LINKEDIN_GEO_IDS = {"Germany": 101282230, "Spain": 105646813}
+
+def _do_harvest_linkedin_alt():
+    """Secondary/fallback LinkedIn source using anandanair/job-scraper's
+    scraping technique (guest jobs API + BeautifulSoup), reimplemented here
+    without its Supabase coupling since this project stores jobs in SQLite.
+    Deliberately throttled (small page/result caps, randomized delays
+    copied from the source project) since it's a redundant path behind
+    jobspy's LinkedIn coverage, not the primary one."""
+    source = "linkedin_alt"
+    _set_status(source, "running")
+    conn = connect_db()
+    lid = _log_start(conn, source)
+    count, error = 0, None
+    try:
+        import random
+        import time as _time
+        from bs4 import BeautifulSoup
+        from user_agents import USER_AGENTS
+
+        def ua_headers():
+            return {"User-Agent": random.choice(USER_AGENTS)}
+
+        def get_with_retry(url, max_retries=2):
+            headers = ua_headers()
+            for attempt in range(max_retries + 1):
+                try:
+                    r = requests.get(url, headers=headers, timeout=TIMEOUT)
+                    if r.status_code == 429 and attempt < max_retries:
+                        _time.sleep(15 + random.uniform(0, 5))
+                        headers = ua_headers()
+                        continue
+                    r.raise_for_status()
+                    return r
+                except requests.exceptions.HTTPError:
+                    if attempt < max_retries:
+                        _time.sleep(15 + random.uniform(0, 5))
+                        headers = ua_headers()
+                        continue
+                    raise
+
+        for location_name, geo_id in LINKEDIN_GEO_IDS.items():
+            for term in IT_SEARCH_TERMS[:1]:
+                try:
+                    url = ("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+                           f"?keywords={term.replace(' ', '%20')}&location={location_name}"
+                           f"&geoId={geo_id}&f_TPR=r604800")
+                    r = get_with_retry(url)
+                except Exception as e:
+                    error = f"{location_name}: {e}"
+                    continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                job_ids = []
+                for li in soup.find_all("li"):
+                    card = li.find("div", {"class": "base-card"})
+                    urn = card.get("data-entity-urn") if card else None
+                    if urn and "jobPosting:" in urn:
+                        job_ids.append(urn.split(":")[-1])
+                for jid in job_ids[:5]:  # small cap: redundant/fallback path
+                    _time.sleep(random.uniform(3.0, 10.0))
+                    try:
+                        detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{jid}"
+                        dr = get_with_retry(detail_url)
+                    except Exception:
+                        continue
+                    dsoup = BeautifulSoup(dr.text, "html.parser")
+
+                    # title: primary selector, then the fallback the source
+                    # project also falls back to
+                    title_el = dsoup.find("div", {"class": "top-card-layout__entity-info"})
+                    title = title_el.find("a").text.strip() if title_el and title_el.find("a") else ""
+                    if not title:
+                        h1 = dsoup.find("h1", {"class": "top-card-layout__title"})
+                        title = h1.text.strip() if h1 else ""
+
+                    # company: logo alt text, then org-name link, then flavor span
+                    company = ""
+                    card_layout = dsoup.find("div", {"class": "top-card-layout__card"})
+                    img = card_layout.find("img") if card_layout else None
+                    if img and img.get("alt"):
+                        company = img["alt"].strip()
+                    if not company:
+                        company_el = dsoup.find("a", {"class": "topcard__org-name-link"})
+                        company = company_el.text.strip() if company_el else ""
+                    if not company:
+                        flavor = dsoup.find("span", {"class": "topcard__flavor"})
+                        company = flavor.text.strip() if flavor else ""
+
+                    loc_el = dsoup.find("span", {"class": "topcard__flavor topcard__flavor--bullet"})
+                    desc_el = dsoup.find("div", {"class": "show-more-less-html__markup"})
+                    location = loc_el.text.strip() if loc_el else location_name
+                    desc = strip_html(str(desc_el)) if desc_el else ""
+                    if not title:
+                        continue
+                    combined = f"{title} {company} {location} {desc}"
+                    city, country, rg = parse_location(location)
+                    upsert_job(conn, {
+                        "source": "linkedin_alt", "source_type": "board",
+                        "ats": "linkedin", "external_id": jid,
+                        "company": company, "company_size": None,
+                        "title": title, "location": location, "city": city,
+                        "country": country or location_name, "region_group": rg,
+                        "language": detect_language(combined),
+                        "international_flag": detect_international(combined),
+                        "recruiter_flag": 0, "direct_company_flag": 0,
+                        "url": f"https://www.linkedin.com/jobs/view/{jid}",
+                        "date_posted": "", "description": desc,
+                        "keywords_raw": extract_keywords(combined),
+                        "normalized_text": normalize_space(combined.lower()),
+                        "created_at": now_iso(),
+                    })
+                    count += 1
+                conn.commit()
+    except Exception as e:
+        error = str(e)
+    _log_finish(conn, lid, count, error)
+    conn.close()
+    _set_status(source, "done", count, error)
+
+
 _HARVEST_FNS = {
-    "greenhouse": lambda: _do_harvest_greenhouse(str(BOARDS_FILE)),
-    "lever":      lambda: _do_harvest_lever(str(LEVER_FILE)),
-    "arbeitnow":  _do_harvest_arbeitnow,
-    "euraxess":   _do_harvest_euraxess,
+    "greenhouse":    lambda: _do_harvest_greenhouse(str(BOARDS_FILE)),
+    "lever":         lambda: _do_harvest_lever(str(LEVER_FILE)),
+    "arbeitnow":     _do_harvest_arbeitnow,
+    "euraxess":      _do_harvest_euraxess,
+    "jobspy":        _do_harvest_jobspy,
+    "linkedin_alt":  _do_harvest_linkedin_alt,
 }
 
 # ── filter SQL builder ─────────────────────────────────────────────────────────
@@ -553,19 +844,6 @@ def build_filter_sql(args):
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
 
-# ── CV block scorer ────────────────────────────────────────────────────────────
-
-def score_blocks(job_text, blocks):
-    lower = job_text.lower()
-    scored = []
-    for b in blocks:
-        s = sum(KEYWORDS_WEIGHTED.get(kw.lower(), 3)
-                for kw in b.get("keywords",[]) if kw.lower() in lower)
-        if s > 0:
-            scored.append({**b, "score": s})
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored
-
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -635,17 +913,16 @@ def job_detail(job_id):
     if not row:
         return "Not found", 404
     job = dict(row)
-    scored_blocks, all_blocks = [], []
-    if BLOCKS_FILE.exists():
-        data = json.loads(BLOCKS_FILE.read_text(encoding="utf-8"))
-        all_blocks = data.get("blocks",[])
-        jtext = " ".join(filter(None,[
-            job.get("title"), job.get("company"), job.get("location"),
-            job.get("description"), job.get("keywords_raw"),
-        ]))
-        scored_blocks = score_blocks(jtext, all_blocks)
+    import cv_bank
+    jtext = " ".join(filter(None,[
+        job.get("title"), job.get("company"), job.get("location"),
+        job.get("description"), job.get("keywords_raw"),
+    ]))
+    store = cv_bank.build_bullet_store()
+    scored_bullets = cv_bank.dedupe_by_similarity_group(
+        cv_bank.score_bullets(jtext, store))[:20]
     return render_template("job_detail.html",
-        job=job, scored_blocks=scored_blocks, all_blocks=all_blocks,
+        job=job, scored_bullets=scored_bullets, bullet_bank_loaded=bool(store),
     )
 
 @app.route("/jobs/<int:job_id>/star", methods=["POST"])
@@ -681,13 +958,27 @@ def rate_job(job_id):
     conn.close()
     if not row:
         return jsonify({"error": "not found"}), 404
-
-    blocks = []
-    if BLOCKS_FILE.exists():
-        blocks = json.loads(BLOCKS_FILE.read_text(encoding="utf-8")).get("blocks",[])
+    job = dict(row)
 
     try:
-        result = llm_plugin.rate_job(dict(row), blocks)
+        import cv_bank
+        jtext = " ".join(filter(None, [job.get("title"), job.get("description"), job.get("keywords_raw")]))
+        # rating draws only from recent CVs (curated CSV + last ~20 docs /
+        # ~90 days, English or German) so it reflects Richard's current
+        # self-presentation, not years-old phrasing -- the actual fit
+        # judgment is still fuzzy/semantic, done by the LLM itself, since
+        # job-posting jargon rarely matches bullet wording verbatim
+        candidates = cv_bank.recent_bullets()
+        top_bullets = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext, candidates))[:12]
+        # adapt cv_bank's richer bullet shape to the {id,title,text,keywords}
+        # shape llm_plugin.py's prompt builder expects
+        blocks = [{
+            "id": b["id"],
+            "title": b.get("position_title") or b.get("employer") or b["id"],
+            "text": cv_bank.bullet_text(b),
+            "keywords": b.get("skill_tags", []),
+        } for b in top_bullets]
+        result = llm_plugin.rate_job(job, blocks)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -699,6 +990,92 @@ def rate_job(job_id):
     conn.commit()
     conn.close()
     return jsonify(result)
+
+@app.route("/jobs/<int:job_id>/generate_cv", methods=["POST"])
+def generate_cv_route(job_id):
+    import generate_cv
+    conn = connect_db()
+    row = conn.execute("SELECT id FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not row:
+        conn.close()
+        return "Not found", 404
+    try:
+        result = generate_cv.generate_for_job(job_id)
+    except Exception as e:
+        conn.close()
+        return f"CV generation failed: {e}", 500
+    if result["ok"]:
+        conn.execute(
+            "UPDATE jobs SET cv_status='generated', cv_tex_path=?, cv_pdf_path=?, cv_generated_at=? WHERE id=?",
+            (result["tex_path"], result["pdf_path"], now_iso(), job_id),
+        )
+        conn.commit()
+    conn.close()
+    return redirect(url_for("cv_review", job_id=job_id))
+
+@app.route("/jobs/<int:job_id>/cv")
+def cv_review(job_id):
+    conn = connect_db()
+    row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row:
+        return "Not found", 404
+    job = dict(row)
+    tex_content, compile_error = "", None
+    if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
+        tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
+    return render_template("cv_review.html", job=job, tex_content=tex_content, compile_error=compile_error)
+
+@app.route("/jobs/<int:job_id>/cv/recompile", methods=["POST"])
+def cv_recompile(job_id):
+    import generate_cv
+    conn = connect_db()
+    row = conn.execute("SELECT cv_tex_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not row or not row["cv_tex_path"]:
+        conn.close()
+        return "No CV generated yet for this job", 400
+    tex_path = Path(row["cv_tex_path"])
+    tex_path.write_text(request.form.get("tex_content", ""), encoding="utf-8")
+    result = generate_cv.compile_pdf(tex_path)
+    if result["ok"]:
+        conn.execute(
+            "UPDATE jobs SET cv_pdf_path=?, cv_generated_at=? WHERE id=?",
+            (str(tex_path.with_suffix(".pdf")), now_iso(), job_id),
+        )
+        conn.commit()
+    conn.close()
+    if not result["ok"]:
+        job = get_job_for_review(job_id)
+        return render_template("cv_review.html", job=job, tex_content=tex_path.read_text(encoding="utf-8"),
+                                compile_error=result["log_tail"])
+    return redirect(url_for("cv_review", job_id=job_id))
+
+@app.route("/jobs/<int:job_id>/cv/approve", methods=["POST"])
+def cv_approve(job_id):
+    conn = connect_db()
+    conn.execute("UPDATE jobs SET cv_status='approved' WHERE id=?", (job_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("job_detail", job_id=job_id))
+
+def get_job_for_review(job_id):
+    conn = connect_db()
+    row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+@app.route("/generated/<int:job_id>/cv.pdf")
+def serve_generated_pdf(job_id):
+    conn = connect_db()
+    row = conn.execute("SELECT cv_pdf_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cv_pdf_path"]:
+        return "Not found", 404
+    pdf_path = Path(row["cv_pdf_path"]).resolve()
+    generated_root = (BASE / "generated").resolve()
+    if generated_root not in pdf_path.parents or not pdf_path.exists():
+        return "Not found", 404
+    return Response(pdf_path.read_bytes(), mimetype="application/pdf")
 
 @app.route("/harvest/<source>", methods=["POST"])
 def harvest(source):
@@ -719,7 +1096,22 @@ def harvest_status():
 def settings():
     boards    = BOARDS_FILE.read_text() if BOARDS_FILE.exists() else ""
     companies = LEVER_FILE.read_text()  if LEVER_FILE.exists()  else ""
-    cv_raw    = BLOCKS_FILE.read_text() if BLOCKS_FILE.exists() else "{}"
+
+    import cv_bank
+    store = cv_bank.build_bullet_store()
+    bank_stats = {
+        "total":     len(store),
+        "csv":       sum(1 for b in store if b["source_tag"].startswith("csv:")),
+        "tex":       sum(1 for b in store if b["source_tag"].startswith("tex:")),
+        "odt":       sum(1 for b in store if b["source_tag"].startswith("odt:")),
+        "csv_path":  str(cv_bank.CSV_PATH),
+        "tex_dir":   str(cv_bank.TEX_DIR),
+        "odt_dir":   str(cv_bank.ODT_DIR),
+        "csv_exists": cv_bank.CSV_PATH.exists(),
+        "tex_exists": cv_bank.TEX_DIR.exists(),
+        "odt_exists": cv_bank.ODT_DIR.exists(),
+    }
+
     conn = connect_db()
     db_stats = {
         "size_kb":   int(DB_PATH.stat().st_size / 1024) if DB_PATH.exists() else 0,
@@ -730,7 +1122,7 @@ def settings():
     }
     conn.close()
     return render_template("settings.html",
-        boards=boards, companies=companies, cv_blocks=cv_raw,
+        boards=boards, companies=companies, bank_stats=bank_stats,
         db_stats=db_stats, llm_backend=os.environ.get("LLM_BACKEND","stub"),
     )
 
@@ -744,14 +1136,22 @@ def save_companies():
     LEVER_FILE.write_text(request.form.get("companies",""), encoding="utf-8")
     return redirect(url_for("settings"))
 
-@app.route("/settings/cv_blocks", methods=["POST"])
-def save_cv_blocks():
-    raw = request.form.get("cv_blocks","{}") or "{}"
-    try:
-        json.loads(raw)
-    except json.JSONDecodeError as e:
-        return f"Invalid JSON: {e}", 400
-    BLOCKS_FILE.write_text(raw, encoding="utf-8")
+@app.route("/settings/cv_paths", methods=["POST"])
+def save_cv_paths():
+    cfg = {}
+    for field in ("csv_path", "tex_dir", "odt_dir"):
+        val = (request.form.get(field, "") or "").strip()
+        if val:
+            cfg[field] = val
+    LOCAL_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    return redirect(url_for("settings"))
+
+@app.route("/settings/rebuild_bullets", methods=["POST"])
+def rebuild_bullets():
+    import importlib
+    import cv_bank
+    importlib.reload(cv_bank)  # re-read config.local.json path overrides
+    cv_bank.build_bullet_store(force_rebuild=True)
     return redirect(url_for("settings"))
 
 @app.route("/export")
