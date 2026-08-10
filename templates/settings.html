@@ -22,7 +22,7 @@
   </div>
 
   <!-- Greenhouse boards -->
-  <div class="col-12 col-md-6">
+  <div class="col-12">
     <div class="card h-100">
       <div class="card-header fw-semibold">
         <i class="bi bi-building me-1"></i>Greenhouse Boards
@@ -30,29 +30,10 @@
       </div>
       <div class="card-body">
         <form method="POST" action="/settings/boards">
-          <textarea name="boards" class="form-control font-monospace" rows="14"
+          <textarea name="boards" class="form-control font-monospace" rows="8"
                     placeholder="openai&#10;gitlab&#10;elastic&#10;datadog">{{ boards }}</textarea>
           <button type="submit" class="btn btn-primary btn-sm mt-2">
             <i class="bi bi-save me-1"></i>Save boards.txt
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- Lever companies -->
-  <div class="col-12 col-md-6">
-    <div class="card h-100">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-toggles me-1"></i>Lever Companies
-        <span class="text-muted small ms-2">one slug per line</span>
-      </div>
-      <div class="card-body">
-        <form method="POST" action="/settings/companies">
-          <textarea name="companies" class="form-control font-monospace" rows="14"
-                    placeholder="nvidia&#10;docker&#10;redis">{{ companies }}</textarea>
-          <button type="submit" class="btn btn-primary btn-sm mt-2">
-            <i class="bi bi-save me-1"></i>Save lever_companies.txt
           </button>
         </form>
       </div>

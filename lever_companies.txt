@@ -1,5 +1,0 @@
-nvidia
-docker
-circleci
-redis
-snyk

@@ -32,11 +32,13 @@ PROFILE_EXAMPLE_PATH = BASE / "profile.example.json"
 OUTPUT_DIR = BASE / "generated"
 
 # Detail-bullet budget per position, indexed by relevance rank (0 = best
-# match for this job). Every position still gets its one-line summary
-# regardless of rank -- only itemized detail bullets get trimmed for
-# less-relevant (or, on overflow, any) positions. Positions past the end
-# of this list get 0 detail bullets (summary only).
-DETAIL_BUDGET_BY_RANK = [3, 3, 2, 2, 1, 1, 0, 0, 0, 0]
+# match for this job). The reference CVs show multiple bullets per role
+# throughout, not just the most job-relevant ones, so every position gets
+# a floor of 2 (when the CSV actually has that many bullets for it) --
+# rank only decides who gets *more* (up to 4), not who gets starved down
+# to 0-1. The shrink-to-fit loop (generate_for_job) trims this budget
+# uniformly if the generous default doesn't actually fit on 2 pages.
+DETAIL_BUDGET_BY_RANK = [4, 4, 3, 3, 2, 2, 2, 2, 2, 2]
 PAGE1_POSITION_COUNT = 4  # matches the reference design's page1/page2 split
 MAX_FIT_ITERATIONS = 6
 
@@ -129,6 +131,29 @@ def pick_variant_text(bullet: dict, jtext: str) -> str:
     return de_variants[0] if de_variants else ""
 
 
+def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
+    """Like cv_bank.score_bullets(), but never drops a bullet just
+    because it scores 0 keyword overlap with this specific job -- within
+    one position's own (small) bullet set, a zero-scoring bullet is still
+    real content that should fill the detail-bullet budget when nothing
+    more relevant is available, ranked after anything that does match."""
+    lower = (jtext or "").lower()
+    scored = []
+    for b in bullets:
+        hay = " ".join([
+            b.get("category", ""), " ".join(b.get("skill_tags", [])),
+            b.get("jd_keyword_notes", ""), cv_bank.bullet_text(b),
+        ]).lower()
+        s = sum(cv_bank.KEYWORDS_WEIGHTED.get(kw, 3) for kw in cv_bank.KEYWORDS_WEIGHTED if kw in hay and kw in lower)
+        scored.append({**b, "match_score": s})
+    scored.sort(key=lambda b: (
+        -b["match_score"],
+        -b.get("rating", {}).get("strength", 0),
+        -b.get("rating", {}).get("wording", 0),
+    ))
+    return scored
+
+
 def build_position_groups(job: dict, jtext: str, detail_budget_by_rank=DETAIL_BUDGET_BY_RANK):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
@@ -156,9 +181,9 @@ def build_position_groups(job: dict, jtext: str, detail_budget_by_rank=DETAIL_BU
     groups = []
     for pos in timeline:  # chronological order for the actual rendered CV
         rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
-        budget = detail_budget_by_rank[rank] if rank < len(detail_budget_by_rank) else 0
+        budget = detail_budget_by_rank[rank] if rank < len(detail_budget_by_rank) else 2
 
-        ranked_bullets = cv_bank.score_bullets(jtext, pos["bullets"])
+        ranked_bullets = _rank_bullets_with_fallback(pos["bullets"], jtext)
         detail_texts, detail_texts_raw = [], []
         for b in ranked_bullets:
             if b["id"] == pos["summary_bullet_id"]:
@@ -196,8 +221,12 @@ def build_skill_categories(bullets: list) -> list:
         items = [kw for kw in keywords if kw in matched_tags]
         if items:
             used.update(items)
-            categories.append({"label": label, "skills": [latex_escape(i) for i in items]})
-    leftover = sorted(matched_tags - used)
+            categories.append({"label": latex_escape(label), "skills": [latex_escape(i) for i in items]})
+    # only show leftover tags that are real recognized tech keywords --
+    # the CSV's "Core Skill Tags" column also carries internal
+    # classification words (e.g. "ownership", "proxies") never meant to
+    # be printed as if they were skills
+    leftover = sorted((matched_tags - used) & set(cv_bank.KEYWORDS_WEIGHTED))
     if leftover:
         categories.append({"label": "Other", "skills": [latex_escape(i) for i in leftover[:8]]})
     return categories

@@ -218,6 +218,14 @@ def _strip_tex_markup(text: str) -> str:
     return _normalize(text)
 
 
+def _extract_skill_tags(text: str) -> List[str]:
+    """Real, recognized technology keywords found in free text -- used for
+    tex/odt bullets, which (unlike the CSV) have no authored skill-tag
+    column of their own."""
+    lower = text.lower()
+    return [kw for kw in KEYWORDS_WEIGHTED if kw in lower]
+
+
 def load_tex_bullets(tex_dir: Path = TEX_DIR) -> List[dict]:
     if not tex_dir.exists():
         return []
@@ -241,7 +249,7 @@ def load_tex_bullets(tex_dir: Path = TEX_DIR) -> List[dict]:
                 "category": "",
                 "importance": 3,
                 "anchor": False,
-                "skill_tags": [],
+                "skill_tags": _extract_skill_tags(text),
                 "source_cv_family": [path.stem],
                 "impact_outcome": "",
                 "verb_risk": "",
@@ -310,7 +318,7 @@ def load_odt_bullets(odt_dir: Path = ODT_DIR) -> List[dict]:
                 "category": "",
                 "importance": 3,
                 "anchor": False,
-                "skill_tags": [],
+                "skill_tags": _extract_skill_tags(text),
                 "source_cv_family": [path.stem],
                 "impact_outcome": "",
                 "verb_risk": "",
@@ -498,7 +506,7 @@ def dedupe_by_similarity_group(bullets: List[dict]) -> List[dict]:
     return kept
 
 
-def _recent_file_stems(directories, max_files: int = 20, max_days: int = 90) -> set:
+def _recent_file_stems(directories, max_files: int = 50, max_days: int = 90) -> set:
     files = []
     now = datetime.now(timezone.utc).timestamp()
     for d in directories:
@@ -512,19 +520,24 @@ def _recent_file_stems(directories, max_files: int = 20, max_days: int = 90) -> 
     files.sort(key=lambda t: -t[0])
     within_days = {stem for mtime, stem in files if (now - mtime) / 86400 <= max_days}
     top_n = {stem for _, stem in files[:max_files]}
-    return within_days | top_n
+    # "Long_Complete" CVs are comprehensive/detailed versions kept around
+    # as reference material -- valuable regardless of when they were last
+    # touched, so include them even if they fall outside the recency window
+    long_form = {stem for _, stem in files if "long" in stem.lower()}
+    return within_days | top_n | long_form
 
 
 def recent_bullets(bullets: Optional[List[dict]] = None,
-                    max_files: int = 20, max_days: int = 90) -> List[dict]:
+                    max_files: int = 50, max_days: int = 90) -> List[dict]:
     """CSV bullets (evergreen, curated -- not tied to one dated document)
     plus tex/odt bullets sourced from a recent CV document: among the
-    most-recently-modified max_files documents, or within max_days,
-    across both English and German files (recency only -- language is
-    never a filter here). Job *rating* should be grounded in Richard's
-    current self-presentation, not phrasing from years-old CVs; terms/
-    jargon drift, which is exactly why rating goes through an LLM for
-    fuzzy matching rather than exact keyword overlap."""
+    most-recently-modified max_files documents, within max_days, or a
+    "Long_Complete" comprehensive CV (see _recent_file_stems) -- across
+    both English and German files (recency only -- language is never a
+    filter here). Job *rating* should be grounded in Richard's current
+    self-presentation, not phrasing from years-old CVs; terms/jargon
+    drift, which is exactly why rating goes through an LLM for fuzzy
+    matching rather than exact keyword overlap."""
     if bullets is None:
         bullets = build_bullet_store()
     recent_stems = _recent_file_stems([TEX_DIR, ODT_DIR], max_files, max_days)

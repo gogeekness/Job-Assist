@@ -33,7 +33,6 @@ from flask import (Flask, Response, jsonify, redirect,
 BASE         = Path(__file__).parent
 DB_PATH      = BASE / "jobs.db"
 BOARDS_FILE  = BASE / "boards.txt"
-LEVER_FILE   = BASE / "lever_companies.txt"
 LOCAL_CONFIG_PATH = BASE / "config.local.json"
 
 TIMEOUT = 20
@@ -407,54 +406,6 @@ def _do_harvest_greenhouse(boards_file):
     conn.close()
     _set_status(source, "done", count, error)
 
-def _do_harvest_lever(companies_file):
-    source = "lever"
-    _set_status(source, "running")
-    conn = connect_db()
-    lid = _log_start(conn, source)
-    count, error = 0, None
-    try:
-        tokens = [x.strip() for x in Path(companies_file).read_text().splitlines() if x.strip()]
-        for token in tokens:
-            try:
-                jobs = requests.get(
-                    f"https://api.lever.co/v0/postings/{token}?mode=json",
-                    timeout=TIMEOUT
-                ).json()
-                if not isinstance(jobs, list):
-                    continue
-            except Exception:
-                continue
-            for j in jobs:
-                title    = safe_get(j, ["text"], "")
-                cats     = safe_get(j, ["categories"], {}) or {}
-                location = cats.get("location", "") or ""
-                desc     = strip_html(safe_get(j,["descriptionPlain"],"") or safe_get(j,["description"],""))
-                combined = f"{title} {token} {location} {cats.get('commitment','')} {cats.get('team','')} {desc}"
-                city, country, rg = parse_location(location)
-                upsert_job(conn, {
-                    "source": f"lever:{token}", "source_type": "company",
-                    "ats": "lever", "external_id": str(safe_get(j,["id"],"")),
-                    "company": token, "company_size": None,
-                    "title": title, "location": location, "city": city,
-                    "country": country, "region_group": rg,
-                    "language": detect_language(combined),
-                    "international_flag": detect_international(combined),
-                    "recruiter_flag": 0, "direct_company_flag": 1,
-                    "url": safe_get(j, ["hostedUrl"], ""),
-                    "date_posted": None, "description": desc,
-                    "keywords_raw": extract_keywords(combined),
-                    "normalized_text": normalize_space(combined.lower()),
-                    "created_at": now_iso(),
-                })
-                count += 1
-        conn.commit()
-    except Exception as e:
-        error = str(e)
-    _log_finish(conn, lid, count, error)
-    conn.close()
-    _set_status(source, "done", count, error)
-
 def _do_harvest_arbeitnow():
     """Arbeitnow free API — Germany / EU focused, no auth required."""
     source = "arbeitnow"
@@ -767,7 +718,6 @@ def _do_harvest_linkedin_alt():
 
 _HARVEST_FNS = {
     "greenhouse":    lambda: _do_harvest_greenhouse(str(BOARDS_FILE)),
-    "lever":         lambda: _do_harvest_lever(str(LEVER_FILE)),
     "arbeitnow":     _do_harvest_arbeitnow,
     "euraxess":      _do_harvest_euraxess,
     "jobspy":        _do_harvest_jobspy,
@@ -1095,7 +1045,6 @@ def harvest_status():
 @app.route("/settings")
 def settings():
     boards    = BOARDS_FILE.read_text() if BOARDS_FILE.exists() else ""
-    companies = LEVER_FILE.read_text()  if LEVER_FILE.exists()  else ""
 
     import cv_bank
     store = cv_bank.build_bullet_store()
@@ -1122,18 +1071,13 @@ def settings():
     }
     conn.close()
     return render_template("settings.html",
-        boards=boards, companies=companies, bank_stats=bank_stats,
+        boards=boards, bank_stats=bank_stats,
         db_stats=db_stats, llm_backend=os.environ.get("LLM_BACKEND","stub"),
     )
 
 @app.route("/settings/boards",    methods=["POST"])
 def save_boards():
     BOARDS_FILE.write_text(request.form.get("boards",""), encoding="utf-8")
-    return redirect(url_for("settings"))
-
-@app.route("/settings/companies", methods=["POST"])
-def save_companies():
-    LEVER_FILE.write_text(request.form.get("companies",""), encoding="utf-8")
     return redirect(url_for("settings"))
 
 @app.route("/settings/cv_paths", methods=["POST"])

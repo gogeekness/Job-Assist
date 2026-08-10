@@ -89,7 +89,7 @@
           <div class="filter-section">
             <label class="form-label small fw-semibold mb-1"><i class="bi bi-plug"></i> Source (ATS)</label>
             {% set sel_ats = args.get('ats','').split(',') %}
-            {% for a in ['greenhouse','lever','arbeitnow','euraxess','manual'] %}
+            {% for a in ['greenhouse','arbeitnow','euraxess','indeed','linkedin','manual'] %}
             <div class="form-check form-check-inline">
               <input class="form-check-input ats-check" type="checkbox" id="a-{{ a }}"
                      value="{{ a }}" {% if a in sel_ats %}checked{% endif %}>
