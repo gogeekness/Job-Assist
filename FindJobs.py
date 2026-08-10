@@ -194,6 +194,28 @@ KEYWORDS_WEIGHTED = {
     "nfs":4,"iscsi":4,"fiber channel":5,"fibre channel":5,
 }
 
+# Broader-than-KEYWORDS_WEIGHTED terms for the gross IT-relevance pre-filter --
+# a job can be legitimately IT-relevant (worth an LLM rating call) without
+# mentioning any Linux/HPC-specific term, e.g. "IT Support Technician".
+IT_TITLE_HINTS = {
+    "it ","i.t.","software","developer","engineer","engineering","system",
+    "systems","sysadmin","administrator","admin","devops","sre","cloud",
+    "network","security","cyber","data","database","infrastructure",
+    "platform","technical","technician","support","help desk","helpdesk",
+    "backend","frontend","full stack","fullstack","architect","qa","tester",
+    "programmer","informatik","ingenieur","entwickler","systemadministrator",
+}
+
+def is_it_relevant(job: dict) -> bool:
+    """Gross pre-filter (pipeline step 1): drop obviously non-IT/unrelated
+    jobs before spending LLM calls rating them. Cheap and deliberately
+    generous -- a job only needs ONE signal (a real tech-keyword hit, or
+    an IT-ish word in the title) to pass through to rating."""
+    if (job.get("keywords_raw") or "").strip():
+        return True
+    title = (job.get("title") or "").lower()
+    return any(h in title for h in IT_TITLE_HINTS)
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def now_iso():
@@ -763,9 +785,6 @@ def build_filter_sql(args):
         clauses.append("(company_size IS NULL OR company_size >= ?)")
         params.append(int(ms))
 
-    if args.get("starred") == "1":
-        clauses.append("starred=1")
-
     if args.get("scored") == "1":
         clauses.append("llm_score IS NOT NULL")
 
@@ -801,7 +820,7 @@ def index():
     conn = connect_db()
     stats = {
         "total":   conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0],
-        "starred": conn.execute("SELECT COUNT(*) FROM jobs WHERE starred=1").fetchone()[0],
+        "sorted":  conn.execute("SELECT COUNT(*) FROM jobs WHERE llm_score IS NOT NULL").fetchone()[0],
         "scored":  conn.execute("SELECT COUNT(*) FROM jobs WHERE llm_score IS NOT NULL").fetchone()[0],
         "today":   conn.execute("SELECT COUNT(*) FROM jobs WHERE date(created_at)=date('now')").fetchone()[0],
     }
@@ -875,18 +894,6 @@ def job_detail(job_id):
         job=job, scored_bullets=scored_bullets, bullet_bank_loaded=bool(store),
     )
 
-@app.route("/jobs/<int:job_id>/star", methods=["POST"])
-def toggle_star(job_id):
-    conn = connect_db()
-    row = conn.execute("SELECT starred FROM jobs WHERE id=?", (job_id,)).fetchone()
-    new_val = 0
-    if row:
-        new_val = 0 if row["starred"] else 1
-        conn.execute("UPDATE jobs SET starred=? WHERE id=?", (new_val, job_id))
-        conn.commit()
-    conn.close()
-    return jsonify({"starred": new_val})
-
 @app.route("/jobs/<int:job_id>/notes", methods=["POST"])
 def save_notes(job_id):
     notes = (request.json or {}).get("notes","")
@@ -896,10 +903,33 @@ def save_notes(job_id):
     conn.close()
     return jsonify({"ok": True})
 
+def _rate_one_job(job: dict, cv_bank_candidates=None) -> dict:
+    """Shared by the single-job route and the bulk pass. Rating draws
+    only from recent CVs (curated CSV + last ~50 docs / ~90 days /
+    Long_Complete, English or German) so it reflects Richard's current
+    self-presentation, not years-old phrasing -- the actual fit judgment
+    is still fuzzy/semantic, done by the LLM itself, since job-posting
+    jargon rarely matches bullet wording verbatim."""
+    import cv_bank
+    import llm_plugin
+    jtext = " ".join(filter(None, [job.get("title"), job.get("description"), job.get("keywords_raw")]))
+    candidates = cv_bank_candidates if cv_bank_candidates is not None else cv_bank.recent_bullets()
+    top_bullets = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext, candidates))[:12]
+    # adapt cv_bank's richer bullet shape to the {id,title,text,keywords}
+    # shape llm_plugin.py's prompt builder expects
+    blocks = [{
+        "id": b["id"],
+        "title": b.get("position_title") or b.get("employer") or b["id"],
+        "text": cv_bank.bullet_text(b),
+        "keywords": b.get("skill_tags", []),
+    } for b in top_bullets]
+    return llm_plugin.rate_job(job, blocks)
+
+
 @app.route("/jobs/<int:job_id>/rate", methods=["POST"])
 def rate_job(job_id):
     try:
-        import llm_plugin
+        import llm_plugin  # noqa: F401 -- import-checked here for the friendly error below
     except ImportError:
         return jsonify({"error": "llm_plugin.py not found"}), 500
 
@@ -911,24 +941,7 @@ def rate_job(job_id):
     job = dict(row)
 
     try:
-        import cv_bank
-        jtext = " ".join(filter(None, [job.get("title"), job.get("description"), job.get("keywords_raw")]))
-        # rating draws only from recent CVs (curated CSV + last ~20 docs /
-        # ~90 days, English or German) so it reflects Richard's current
-        # self-presentation, not years-old phrasing -- the actual fit
-        # judgment is still fuzzy/semantic, done by the LLM itself, since
-        # job-posting jargon rarely matches bullet wording verbatim
-        candidates = cv_bank.recent_bullets()
-        top_bullets = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext, candidates))[:12]
-        # adapt cv_bank's richer bullet shape to the {id,title,text,keywords}
-        # shape llm_plugin.py's prompt builder expects
-        blocks = [{
-            "id": b["id"],
-            "title": b.get("position_title") or b.get("employer") or b["id"],
-            "text": cv_bank.bullet_text(b),
-            "keywords": b.get("skill_tags", []),
-        } for b in top_bullets]
-        result = llm_plugin.rate_job(job, blocks)
+        result = _rate_one_job(job)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -940,6 +953,53 @@ def rate_job(job_id):
     conn.commit()
     conn.close()
     return jsonify(result)
+
+
+_RATE_BULK_CAP = 300  # bound one run's duration regardless of backlog size
+
+def _do_rate_bulk():
+    source = "rate_bulk"
+    _set_status(source, "running")
+    conn = connect_db()
+    lid = _log_start(conn, source)
+    count, error = 0, None
+    try:
+        import cv_bank
+        candidates = cv_bank.recent_bullets()  # computed once, reused for every job this run
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE llm_score IS NULL AND region_group != 'other' "
+            "ORDER BY created_at DESC LIMIT ?", (_RATE_BULK_CAP * 3,)
+        ).fetchall()
+        for row in rows:
+            if count >= _RATE_BULK_CAP:
+                break
+            job = dict(row)
+            if not is_it_relevant(job):
+                continue
+            try:
+                result = _rate_one_job(job, candidates)
+            except Exception as e:
+                error = str(e)
+                continue
+            conn.execute(
+                "UPDATE jobs SET llm_score=?, llm_notes=? WHERE id=?",
+                (result.get("score"), json.dumps(result, ensure_ascii=False), job["id"]),
+            )
+            conn.commit()
+            count += 1
+    except Exception as e:
+        error = str(e)
+    _log_finish(conn, lid, count, error)
+    conn.close()
+    _set_status(source, "done", count, error)
+
+@app.route("/jobs/rate_bulk", methods=["POST"])
+def rate_bulk():
+    with _harvest_lock:
+        if _harvest_status.get("rate_bulk", {}).get("state") == "running":
+            return jsonify({"error": "already running"}), 409
+    threading.Thread(target=_do_rate_bulk, daemon=True).start()
+    return jsonify({"started": "rate_bulk"})
 
 @app.route("/jobs/<int:job_id>/generate_cv", methods=["POST"])
 def generate_cv_route(job_id):
