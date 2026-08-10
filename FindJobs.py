@@ -195,9 +195,17 @@ KEYWORDS_WEIGHTED = {
     "hpc":9,"cluster":8,"slurm":8,"infiniband":8,"ipmi":7,"pxe":7,"gpu":7,
     "azure":5,"aws":5,"debian":5,"ubuntu":5,"rhel":5,"alma":4,"networking":4,
     "routing":4,"ci/cd":4,"proxmox":6,"openstack":5,"ceph":5,"zfs":4,
-    "lustre":7,"gpfs":6,"beegfs":6,"mpi":7,"openmpi":7,"cuda":6,"rdma":7,
+    "lustre":7,"gpfs":6,"beegfs":6,"mpi":7,"openmpi":7,"cuda":7,"rdma":7,
     "puppet":4,"chef":4,"saltstack":4,"packer":4,"vault":4,"consul":4,
     "nfs":4,"iscsi":4,"fiber channel":5,"fibre channel":5,
+    # AI/ML -- previously absent entirely, so AI-adjacent postings were
+    # invisible in the skill histogram even when gpu/cuda/python hinted
+    # they existed. "spark" and "rag" are real words outside this context
+    # too (word-boundary matching in extract_keywords() limits false
+    # positives to genuine standalone-word collisions, not eliminates them).
+    "machine learning":7,"tensorflow":6,"pytorch":6,"llm":6,
+    "generative ai":7,"huggingface":5,"langchain":5,"mlops":6,
+    "data science":6,"spark":5,"databricks":5,"openai":5,"anthropic":5,"rag":5,
 }
 
 # Broader-than-KEYWORDS_WEIGHTED terms for the gross IT-relevance pre-filter --
@@ -226,12 +234,19 @@ def is_it_relevant(job: dict) -> bool:
 # filter -- order matters, first match wins (checked most-specific first).
 PROFESSION_CATEGORIES = {
     "hpc_research":   ["hpc", "high performance computing", "cluster", "research", "wissenschaft", "scientific"],
+    # AI/ML buckets placed early (before the generic "engineer"/"other_it"
+    # catch-alls) so e.g. "Machine Learning Engineer" lands here, not in
+    # other_it just because it contains the word "engineer".
+    "ml_engineer":    ["machine learning engineer", "ml engineer", "machine learning"],
+    "ai_engineer":    ["ai engineer", "artificial intelligence", "generative ai", "llm engineer", "genai"],
+    "data_scientist": ["data scientist", "data science"],
+    "mlops_engineer": ["mlops", "ml ops"],
     "devops_sre":     ["devops", "site reliability", " sre", "platform engineer"],
     "cloud":          ["cloud engineer", "cloud architect", "aws engineer", "azure engineer", "cloud"],
     "linux_sysadmin": ["linux", "sysadmin", "systemadministrator", "system administrator", "systemtechniker"],
     "network":        ["network", "netzwerk"],
     "security":       ["security", "cyber", "sicherheit"],
-    "data_db":        ["data engineer", "database administrator", "dba", "data scientist"],
+    "data_db":        ["data engineer", "database administrator", "dba"],
     "software_dev":   ["developer", "entwickler", "software engineer", "programmer", "full stack", "fullstack", "backend", "frontend"],
     "it_support":     ["support", "helpdesk", "help desk", "service desk", "technician"],
     "other_it":       ["it ", "informatik", "engineer", "engineering", "system", "technical"],

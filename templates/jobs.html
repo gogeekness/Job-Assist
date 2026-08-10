@@ -104,7 +104,7 @@
             <label class="form-label small fw-semibold mb-1"><i class="bi bi-bar-chart-fill"></i> Trade / Profession</label>
             <select class="form-select form-select-sm" name="profession">
               <option value="">All</option>
-              {% for p in ['hpc_research','devops_sre','cloud','linux_sysadmin','network','security','data_db','software_dev','it_support','other_it','unclassified'] %}
+              {% for p in ['hpc_research','ml_engineer','ai_engineer','data_scientist','mlops_engineer','devops_sre','cloud','linux_sysadmin','network','security','data_db','software_dev','it_support','other_it','unclassified'] %}
               <option value="{{ p }}" {% if args.get('profession')==p %}selected{% endif %}>{{ p | replace('_',' ') }}</option>
               {% endfor %}
             </select>
