@@ -28,6 +28,7 @@ from typing import Dict, List, Tuple
 
 import feedparser
 import requests
+from dotenv import load_dotenv, set_key
 from flask import (Flask, Response, jsonify, redirect,
                    render_template, request, url_for)
 
@@ -35,6 +36,9 @@ BASE         = Path(__file__).parent
 DB_PATH      = BASE / "jobs.db"
 BOARDS_FILE  = BASE / "boards.txt"
 LOCAL_CONFIG_PATH = BASE / "config.local.json"
+ENV_PATH     = BASE / ".env"
+
+load_dotenv(ENV_PATH)  # picks up LLM_BACKEND/API keys saved via the settings page
 
 TIMEOUT = 20
 
@@ -1195,9 +1199,19 @@ def settings():
         ).fetchall()],
     }
     conn.close()
+
+    llm_config = {
+        "backend":         os.environ.get("LLM_BACKEND", "stub"),
+        "anthropic_model": os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+        "anthropic_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "openai_model":    os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        "openai_key_set":  bool(os.environ.get("OPENAI_API_KEY")),
+        "ollama_host":     os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+        "ollama_model":    os.environ.get("OLLAMA_MODEL", "llama3.2"),
+    }
     return render_template("settings.html",
         boards=boards, bank_stats=bank_stats,
-        db_stats=db_stats, llm_backend=os.environ.get("LLM_BACKEND","stub"),
+        db_stats=db_stats, llm_backend=llm_config["backend"], llm_config=llm_config,
     )
 
 @app.route("/settings/boards",    methods=["POST"])
@@ -1222,6 +1236,40 @@ def rebuild_bullets():
     importlib.reload(cv_bank)  # re-read config.local.json path overrides
     cv_bank.build_bullet_store(force_rebuild=True)
     return redirect(url_for("settings"))
+
+@app.route("/settings/llm", methods=["POST"])
+def save_llm_config():
+    if not ENV_PATH.exists():
+        ENV_PATH.touch()
+
+    backend = request.form.get("backend", "stub")
+    os.environ["LLM_BACKEND"] = backend
+    set_key(str(ENV_PATH), "LLM_BACKEND", backend)
+
+    # only overwrite a secret/value if the user actually typed something --
+    # leaves the existing saved key alone on an otherwise-unrelated save
+    fields = {
+        "anthropic_key":   "ANTHROPIC_API_KEY",
+        "anthropic_model": "ANTHROPIC_MODEL",
+        "openai_key":      "OPENAI_API_KEY",
+        "openai_model":    "OPENAI_MODEL",
+        "ollama_host":     "OLLAMA_HOST",
+        "ollama_model":    "OLLAMA_MODEL",
+    }
+    for form_field, env_name in fields.items():
+        val = (request.form.get(form_field, "") or "").strip()
+        if val:
+            os.environ[env_name] = val
+            set_key(str(ENV_PATH), env_name, val)
+
+    return redirect(url_for("settings"))
+
+@app.route("/settings/llm/test", methods=["POST"])
+def test_llm_connection():
+    import llm_plugin
+    backend = request.form.get("backend") or os.environ.get("LLM_BACKEND", "stub")
+    result = llm_plugin.test_connection(backend)
+    return jsonify(result)
 
 @app.route("/export")
 def export_csv():

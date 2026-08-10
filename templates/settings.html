@@ -100,38 +100,107 @@
   <!-- LLM plugin info -->
   <div class="col-12">
     <div class="card">
-      <div class="card-header fw-semibold"><i class="bi bi-robot me-1"></i>LLM Plugin</div>
+      <div class="card-header fw-semibold"><i class="bi bi-robot me-1"></i>LLM Connection</div>
       <div class="card-body">
-        <p class="mb-2">Current backend: <code>{{ llm_backend }}</code></p>
-        <table class="table table-sm table-bordered w-auto">
-          <thead class="table-light">
-            <tr><th>Backend</th><th>How to enable</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>stub</code> (default)</td>
-              <td>No setup — keyword scoring only</td>
-            </tr>
-            <tr>
-              <td><code>anthropic</code></td>
-              <td><code>export LLM_BACKEND=anthropic ANTHROPIC_API_KEY=sk-ant-…</code></td>
-            </tr>
-            <tr>
-              <td><code>openai</code></td>
-              <td><code>export LLM_BACKEND=openai OPENAI_API_KEY=sk-…</code></td>
-            </tr>
-            <tr>
-              <td><code>ollama</code></td>
-              <td>
-                <code>export LLM_BACKEND=ollama OLLAMA_HOST=http://&lt;vm-ip&gt;:11434</code><br>
-                <span class="text-muted small">Point at any Ollama instance on your LAN or OpenStack VM</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <p class="mb-3">Current backend: <code>{{ llm_config.backend }}</code>
+          <span class="text-muted small">— takes effect immediately, no restart needed</span></p>
+
+        <form method="POST" action="/settings/llm" id="llm-form">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Backend</label>
+            <select class="form-select form-select-sm" name="backend" id="llm-backend-select">
+              {% for b in ['stub','anthropic','openai','ollama'] %}
+              <option value="{{ b }}" {% if llm_config.backend==b %}selected{% endif %}>{{ b }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <div class="border rounded p-2 h-100">
+                <div class="fw-semibold small mb-1">Anthropic (external)</div>
+                <label class="form-label small">API key
+                  {% if llm_config.anthropic_key_set %}<span class="badge text-bg-success">configured</span>{% endif %}
+                </label>
+                <input type="password" class="form-control form-control-sm mb-2" name="anthropic_key"
+                       placeholder="{% if llm_config.anthropic_key_set %}•••• leave blank to keep{% else %}sk-ant-…{% endif %}">
+                <label class="form-label small">Model</label>
+                <input type="text" class="form-control form-control-sm" name="anthropic_model"
+                       placeholder="{{ llm_config.anthropic_model }}">
+              </div>
+            </div>
+            <div class="col-12 col-md-6">
+              <div class="border rounded p-2 h-100">
+                <div class="fw-semibold small mb-1">OpenAI (external)</div>
+                <label class="form-label small">API key
+                  {% if llm_config.openai_key_set %}<span class="badge text-bg-success">configured</span>{% endif %}
+                </label>
+                <input type="password" class="form-control form-control-sm mb-2" name="openai_key"
+                       placeholder="{% if llm_config.openai_key_set %}•••• leave blank to keep{% else %}sk-…{% endif %}">
+                <label class="form-label small">Model</label>
+                <input type="text" class="form-control form-control-sm" name="openai_model"
+                       placeholder="{{ llm_config.openai_model }}">
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="border rounded p-2">
+                <div class="fw-semibold small mb-1">Ollama (local / LAN)</div>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label small">Host</label>
+                    <input type="text" class="form-control form-control-sm" name="ollama_host"
+                           placeholder="{{ llm_config.ollama_host }}">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">Model</label>
+                    <input type="text" class="form-control form-control-sm" name="ollama_model"
+                           placeholder="{{ llm_config.ollama_model }}">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-save me-1"></i>Save
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="llm-test-btn">
+              <i class="bi bi-plug me-1"></i>Test access
+              <span class="spinner-border spinner-border-sm ms-1 d-none" id="llm-test-spinner"></span>
+            </button>
+          </div>
+          <div id="llm-test-result" class="small mt-2"></div>
+        </form>
       </div>
     </div>
   </div>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('llm-test-btn').addEventListener('click', function() {
+  const resultEl = document.getElementById('llm-test-result');
+  const spinner = document.getElementById('llm-test-spinner');
+  const backend = document.getElementById('llm-backend-select').value;
+  spinner.classList.remove('d-none');
+  resultEl.textContent = '';
+  const form = new FormData();
+  form.append('backend', backend);
+  fetch('/settings/llm/test', {method: 'POST', body: form})
+    .then(r => r.json())
+    .then(data => {
+      spinner.classList.add('d-none');
+      resultEl.textContent = (data.ok ? '✓ ' : '✗ ') + data.message;
+      resultEl.className = 'small mt-2 ' + (data.ok ? 'text-success' : 'text-danger');
+    })
+    .catch(e => {
+      spinner.classList.add('d-none');
+      resultEl.textContent = '✗ ' + e;
+      resultEl.className = 'small mt-2 text-danger';
+    });
+});
+</script>
 {% endblock %}

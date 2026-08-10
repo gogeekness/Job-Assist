@@ -4,6 +4,8 @@ jinja2
 requests
 feedparser
 anthropic
+openai
+python-dotenv
 
 # vendored jobspy/ (speedyapply/JobSpy) dependencies - not pip installed as a
 # package, imported directly from ./jobspy, but it needs these to run

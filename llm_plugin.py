@@ -27,7 +27,10 @@ import json
 import os
 import re
 
-BACKEND = os.environ.get("LLM_BACKEND", "stub")
+def current_backend() -> str:
+    # read fresh each call (not cached at import) so a settings-page save
+    # that updates os.environ takes effect immediately, no restart needed
+    return os.environ.get("LLM_BACKEND", "stub")
 
 KEYWORDS_WEIGHTED = {
     "linux":8,"ansible":7,"python":6,"bash":5,"terraform":6,"jenkins":5,
@@ -43,15 +46,64 @@ KEYWORDS_WEIGHTED = {
 
 def rate_job(job: dict, cv_blocks: list) -> dict:
     """Rate a job against the candidate's CV blocks."""
-    if BACKEND == "stub":
+    backend = current_backend()
+    if backend == "stub":
         return _stub_rate(job, cv_blocks)
-    if BACKEND == "anthropic":
+    if backend == "anthropic":
         return _anthropic_rate(job, cv_blocks)
-    if BACKEND == "openai":
+    if backend == "openai":
         return _openai_rate(job, cv_blocks)
-    if BACKEND == "ollama":
+    if backend == "ollama":
         return _ollama_rate(job, cv_blocks)
-    raise ValueError(f"Unknown LLM_BACKEND={BACKEND!r}. Valid: stub, anthropic, openai, ollama")
+    raise ValueError(f"Unknown LLM_BACKEND={backend!r}. Valid: stub, anthropic, openai, ollama")
+
+
+def test_connection(backend: str = None) -> dict:
+    """Cheap, minimal-token connectivity check for the settings page's
+    "Test access" button -- does NOT run a real job rating."""
+    backend = backend or current_backend()
+    try:
+        if backend == "stub":
+            return {"ok": True, "message": "Stub backend needs no external connection."}
+
+        if backend == "anthropic":
+            import anthropic
+            if "ANTHROPIC_API_KEY" not in os.environ:
+                return {"ok": False, "message": "ANTHROPIC_API_KEY not set."}
+            client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+            model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+            msg = client.messages.create(
+                model=model, max_tokens=10,
+                messages=[{"role": "user", "content": "Reply with just the word: OK"}],
+            )
+            return {"ok": True, "message": f"Connected to {model}. Reply: {msg.content[0].text.strip()}"}
+
+        if backend == "openai":
+            from openai import OpenAI
+            if "OPENAI_API_KEY" not in os.environ:
+                return {"ok": False, "message": "OPENAI_API_KEY not set."}
+            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            resp = client.chat.completions.create(
+                model=model, max_tokens=10,
+                messages=[{"role": "user", "content": "Reply with just the word: OK"}],
+            )
+            return {"ok": True, "message": f"Connected to {model}. Reply: {resp.choices[0].message.content.strip()}"}
+
+        if backend == "ollama":
+            import requests as req
+            host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            model = os.environ.get("OLLAMA_MODEL", "llama3.2")
+            resp = req.get(f"{host}/api/tags", timeout=10)
+            resp.raise_for_status()
+            tags = [m.get("name") for m in resp.json().get("models", [])]
+            if model not in tags and not any(t.startswith(model) for t in tags):
+                return {"ok": False, "message": f"Connected to {host}, but model '{model}' isn't pulled there. Available: {', '.join(tags) or '(none)'}"}
+            return {"ok": True, "message": f"Connected to {host}. Model '{model}' is available."}
+
+        return {"ok": False, "message": f"Unknown backend: {backend}"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
 
 
 # ── stub ───────────────────────────────────────────────────────────────────────
@@ -160,7 +212,7 @@ def _anthropic_rate(job: dict, cv_blocks: list) -> dict:
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
-        model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
         max_tokens=600,
         messages=[{"role": "user", "content": _build_prompt(job, cv_blocks)}],
     )
