@@ -862,11 +862,12 @@ def build_filter_sql(args):
 def index():
     conn = connect_db()
     stats = {
-        "total":   conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0],
-        "sorted":  conn.execute("SELECT COUNT(*) FROM jobs WHERE llm_score IS NOT NULL").fetchone()[0],
-        "scored":  conn.execute("SELECT COUNT(*) FROM jobs WHERE llm_score IS NOT NULL").fetchone()[0],
-        "today":   conn.execute("SELECT COUNT(*) FROM jobs WHERE date(created_at)=date('now')").fetchone()[0],
+        "total":    conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0],
+        "scored":   conn.execute("SELECT COUNT(*) FROM jobs WHERE llm_score IS NOT NULL").fetchone()[0],
+        "unviewed": conn.execute("SELECT COUNT(*) FROM jobs WHERE viewed_at IS NULL").fetchone()[0],
+        "today":    conn.execute("SELECT COUNT(*) FROM jobs WHERE date(created_at)=date('now')").fetchone()[0],
     }
+    llm_backend = os.environ.get("LLM_BACKEND", "stub")
     by_region = [dict(r) for r in conn.execute(
         "SELECT region_group, COUNT(*) n FROM jobs GROUP BY region_group ORDER BY n DESC"
     ).fetchall()]
@@ -896,7 +897,7 @@ def index():
     return render_template("index.html",
         stats=stats, by_region=by_region, by_lang=by_lang,
         by_source=by_source, by_profession=by_profession, by_skill=by_skill, recent_log=recent_log,
-        harvest_status=dict(_harvest_status),
+        harvest_status=dict(_harvest_status), llm_backend=llm_backend,
     )
 
 @app.route("/jobs")
@@ -928,6 +929,7 @@ def jobs():
         jobs=[dict(r) for r in rows],
         total=total, limit=limit, offset=offset,
         args=dict(request.args),
+        llm_backend=os.environ.get("LLM_BACKEND", "stub"),
     )
 
 @app.route("/jobs/<int:job_id>")

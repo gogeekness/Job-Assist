@@ -12,20 +12,26 @@
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card text-bg-warning">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold">{{ stats.sorted }}</div>
-        <div class="small">Sorted (LLM rated)</div>
+    <a href="/jobs?scored=1&sort=llm_score" class="text-decoration-none">
+      <div class="card text-bg-success">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold">{{ stats.scored }}</div>
+          <div class="small">
+            {% if llm_backend == 'stub' %}Keyword Sorted{% else %}LLM Sorted ({{ llm_backend }}){% endif %}
+          </div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card text-bg-success">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold">{{ stats.scored }}</div>
-        <div class="small">LLM Scored</div>
+    <a href="/jobs?unviewed=1" class="text-decoration-none">
+      <div class="card text-bg-warning">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold">{{ stats.unviewed }}</div>
+          <div class="small">Not Yet Looked At</div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
     <div class="card text-bg-info">
@@ -195,9 +201,8 @@
     <a href="/jobs?ats=euraxess"
        class="btn btn-outline-secondary btn-sm">EURAXESS only</a>
     <a href="/jobs?scored=1&amp;sort=llm_score"
-       class="btn btn-outline-warning btn-sm"><i class="bi bi-sort-numeric-down"></i> Sorted (by fit)</a>
-    <a href="/jobs?scored=1"
-       class="btn btn-outline-success btn-sm"><i class="bi bi-robot"></i> LLM Scored</a>
+       class="btn btn-outline-warning btn-sm"><i class="bi bi-sort-numeric-down"></i>
+       {% if llm_backend == 'stub' %}Keyword sorted{% else %}LLM sorted{% endif %}</a>
     <a href="/jobs"
        class="btn btn-outline-dark btn-sm">All Jobs (wide)</a>
     <button class="btn btn-outline-primary btn-sm" id="rate-bulk-btn">

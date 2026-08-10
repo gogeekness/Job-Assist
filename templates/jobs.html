@@ -116,7 +116,7 @@
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="scored" value="1" id="chk-scored"
                      {% if args.get('scored')=='1' %}checked{% endif %}>
-              <label class="form-check-label small" for="chk-scored"><i class="bi bi-robot text-success"></i> LLM scored only</label>
+              <label class="form-check-label small" for="chk-scored"><i class="bi bi-robot text-success"></i> {% if llm_backend == 'stub' %}Keyword scored only{% else %}LLM scored only{% endif %}</label>
             </div>
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="unviewed" value="1" id="chk-unviewed"
@@ -129,7 +129,7 @@
           <div class="filter-section">
             <label class="form-label small fw-semibold mb-1">Sort by</label>
             <select name="sort" class="form-select form-select-sm">
-              {% for val,lbl in [('created_at','Date added'),('date_posted','Date posted'),('llm_score','LLM score'),('company','Company'),('title','Title'),('region_group','Region')] %}
+              {% for val,lbl in [('created_at','Date added'),('date_posted','Date posted'),('llm_score', 'Keyword score' if llm_backend == 'stub' else 'LLM score'),('company','Company'),('title','Title'),('region_group','Region')] %}
               <option value="{{ val }}" {% if args.get('sort','')==val %}selected{% endif %}>{{ lbl }}</option>
               {% endfor %}
             </select>
