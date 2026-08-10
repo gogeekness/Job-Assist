@@ -9,6 +9,14 @@
     {"label": "LinkedIn", "url": "https://www.linkedin.com/in/you/"}
   ],
   "photo_path": "",
+  "projects": [
+    {
+      "title": "Your Side Project",
+      "period": "2026 -- ",
+      "location": "City, Country",
+      "summary": "One or two sentences describing the project, factual only."
+    }
+  ],
   "education": [
     {"school": "Your University", "degree": "Bachelor's Degree: Computer Science", "year": "2000"}
   ],

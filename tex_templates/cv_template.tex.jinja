@@ -60,6 +60,19 @@
   }\\[2pt]
 }
 
+% Same bar as \jobheader but 3 args (title/dates/location, no employer) --
+% for personal projects, not a real job.
+\newcommand{\projectheader}[3]{%
+  \noindent
+  \colorbox{barshade}{%
+    \begin{minipage}[t]{\dimexpr\maincolwidth-2\fboxsep\relax}
+      \large
+      \textbf{#1}\hfill\textbf{#2}\\
+      \hspace*{\fill}\textbf{#3}
+    \end{minipage}%
+  }\\[2pt]
+}
+
 \newcommand{\sidebarbox}[1]{%
   \colorbox{sidebar}{%
     \begin{minipage}[t][\dimexpr\textheight-24pt\relax][t]{\sidebartextwidth}
@@ -125,6 +138,12 @@
 {\large \VAR{intro} \par}
 
 \vspace{\jobgap}
+
+\BLOCK{for p in projects}
+\projectheader{\VAR{p.title}}{\VAR{p.period}}{\VAR{p.location}}
+{\large $\blacktriangleright$ \VAR{p.summary} \par}
+\vspace{\jobgap}
+\BLOCK{endfor}
 
 \BLOCK{for g in page1_groups}
 \jobheader{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}

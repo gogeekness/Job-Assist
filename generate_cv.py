@@ -334,6 +334,9 @@ def render_tex(job: dict, profile: dict, groups: list,
                       for c in profile.get("certificates", [])],
         languages=[{"name": latex_escape(l["name"]), "level": latex_escape(l["level"])}
                    for l in profile.get("languages", [])],
+        projects=[{"title": latex_escape(p["title"]), "period": latex_escape(p["period"]),
+                   "location": latex_escape(p["location"]), "summary": latex_escape(p["summary"])}
+                  for p in profile.get("projects", [])],
         skill_categories=skill_categories,
         page1_groups=page1_groups,
         page2_groups=page2_groups,
