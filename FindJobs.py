@@ -330,9 +330,14 @@ def parse_location(location) -> Tuple[str, str, str]:
 
     return city, country, region_group
 
+_KEYWORD_PATTERNS = {
+    kw: re.compile(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])")
+    for kw in KEYWORDS_WEIGHTED
+}
+
 def extract_keywords(text):
     lower = text.lower()
-    return " ".join(kw for kw in KEYWORDS_WEIGHTED if kw in lower)
+    return " ".join(kw for kw, pat in _KEYWORD_PATTERNS.items() if pat.search(lower))
 
 def safe_get(obj, path, default=None):
     cur = obj
@@ -873,13 +878,24 @@ def index():
     ).fetchall()]
     prof_counts = Counter(classify_profession(t) for (t,) in conn.execute("SELECT title FROM jobs"))
     by_profession = [{"profession": p, "n": n} for p, n in prof_counts.most_common()]
+    skill_counts = Counter()
+    for (kw_raw,) in conn.execute("SELECT keywords_raw FROM jobs WHERE keywords_raw != ''"):
+        # keywords_raw is a space-joined subset of KEYWORDS_WEIGHTED's keys
+        # (some of which contain their own spaces, e.g. "github actions") --
+        # re-match against the known key list instead of a naive .split(),
+        # which would wrongly break multi-word keywords into pieces.
+        present = (kw_raw or "")
+        for kw in KEYWORDS_WEIGHTED:
+            if kw in present:
+                skill_counts[kw] += 1
+    by_skill = [{"skill": s, "n": n} for s, n in skill_counts.most_common(30)]
     recent_log = [dict(r) for r in conn.execute(
         "SELECT * FROM harvest_log ORDER BY started_at DESC LIMIT 12"
     ).fetchall()]
     conn.close()
     return render_template("index.html",
         stats=stats, by_region=by_region, by_lang=by_lang,
-        by_source=by_source, by_profession=by_profession, recent_log=recent_log,
+        by_source=by_source, by_profession=by_profession, by_skill=by_skill, recent_log=recent_log,
         harvest_status=dict(_harvest_status),
     )
 
@@ -1226,6 +1242,28 @@ def export_csv():
     return Response(
         out.getvalue(), mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=jobs_export.csv"},
+    )
+
+@app.route("/export/histogram")
+def export_histogram_csv():
+    conn = connect_db()
+    prof_counts = Counter(classify_profession(t) for (t,) in conn.execute("SELECT title FROM jobs"))
+    skill_counts = Counter()
+    for (kw_raw,) in conn.execute("SELECT keywords_raw FROM jobs WHERE keywords_raw != ''"):
+        for kw in KEYWORDS_WEIGHTED:
+            if kw in (kw_raw or ""):
+                skill_counts[kw] += 1
+    conn.close()
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["type", "value", "count"])
+    for p, n in prof_counts.most_common():
+        w.writerow(["profession", p, n])
+    for s, n in skill_counts.most_common():
+        w.writerow(["skill", s, n])
+    return Response(
+        out.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=job_histogram.csv"},
     )
 
 @app.route("/prompts")
