@@ -9,6 +9,7 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{ragged2e}
 \usepackage[T1]{fontenc}
+\usepackage{amssymb}
 
 \IfFileExists{DejaVuSans.sty}{%
   \usepackage{DejaVuSans}%
@@ -127,7 +128,7 @@
 
 \BLOCK{for g in page1_groups}
 \jobheader{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}
-{\large $\Delta$ \VAR{g.summary} \par}
+{\large $\blacktriangleright$ \VAR{g.summary} \par}
 \BLOCK{if g.bullets}
 \begin{itemize}[leftmargin=1.2em, itemsep=2pt, topsep=4pt]
 \BLOCK{for bullet in g.bullets}
@@ -184,7 +185,7 @@
 
 \BLOCK{for g in page2_groups}
 \jobheader{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}
-{\large $\Delta$ \VAR{g.summary} \par}
+{\large $\blacktriangleright$ \VAR{g.summary} \par}
 \BLOCK{if g.bullets}
 \begin{itemize}[leftmargin=1.2em, itemsep=2pt, topsep=4pt]
 \BLOCK{for bullet in g.bullets}
