@@ -100,6 +100,27 @@
     </div>
   </div>
 
+  <!-- By profession (title histogram) -->
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-bar-chart-fill me-1"></i>By Trade / Profession</div>
+      <div class="card-body p-2">
+        {% set max_n = by_profession[0].n if by_profession else 1 %}
+        {% for row in by_profession %}
+        <a href="/jobs?profession={{ row.profession }}" class="text-decoration-none d-block mb-1">
+          <div class="d-flex justify-content-between small">
+            <span>{{ row.profession | replace('_',' ') }}</span>
+            <span class="fw-bold">{{ row.n }}</span>
+          </div>
+          <div class="progress" style="height:6px;">
+            <div class="progress-bar" style="width:{{ (row.n / max_n * 100) | round(1) }}%;"></div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
   <!-- By language -->
   <div class="col-6 col-lg-2">
     <div class="card h-100">

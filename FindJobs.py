@@ -21,6 +21,7 @@ import re
 import sqlite3
 import sys
 import threading
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -110,6 +111,7 @@ EXTRA_COLS = [
     ("cv_tex_path",   "TEXT"),
     ("cv_pdf_path",   "TEXT"),
     ("cv_generated_at", "TEXT"),
+    ("viewed_at",     "TEXT"),       # set the first time the job detail page is opened
 ]
 
 # ── geo / language data ────────────────────────────────────────────────────────
@@ -215,6 +217,28 @@ def is_it_relevant(job: dict) -> bool:
         return True
     title = (job.get("title") or "").lower()
     return any(h in title for h in IT_TITLE_HINTS)
+
+# Coarse trade/profession buckets for the title histogram and job-list
+# filter -- order matters, first match wins (checked most-specific first).
+PROFESSION_CATEGORIES = {
+    "hpc_research":   ["hpc", "high performance computing", "cluster", "research", "wissenschaft", "scientific"],
+    "devops_sre":     ["devops", "site reliability", " sre", "platform engineer"],
+    "cloud":          ["cloud engineer", "cloud architect", "aws engineer", "azure engineer", "cloud"],
+    "linux_sysadmin": ["linux", "sysadmin", "systemadministrator", "system administrator", "systemtechniker"],
+    "network":        ["network", "netzwerk"],
+    "security":       ["security", "cyber", "sicherheit"],
+    "data_db":        ["data engineer", "database administrator", "dba", "data scientist"],
+    "software_dev":   ["developer", "entwickler", "software engineer", "programmer", "full stack", "fullstack", "backend", "frontend"],
+    "it_support":     ["support", "helpdesk", "help desk", "service desk", "technician"],
+    "other_it":       ["it ", "informatik", "engineer", "engineering", "system", "technical"],
+}
+
+def classify_profession(title: str) -> str:
+    lower = (title or "").lower()
+    for cat, keywords in PROFESSION_CATEGORIES.items():
+        if any(kw in lower for kw in keywords):
+            return cat
+    return "unclassified"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -788,6 +812,20 @@ def build_filter_sql(args):
     if args.get("scored") == "1":
         clauses.append("llm_score IS NOT NULL")
 
+    if args.get("unviewed") == "1":
+        clauses.append("viewed_at IS NULL")
+
+    profs = _kw_list(args.get("profession",""))
+    if profs:
+        sub = []
+        for p in profs:
+            kws = PROFESSION_CATEGORIES.get(p, [])
+            for kw in kws:
+                sub.append("lower(title) LIKE ?")
+                params.append(f"%{kw}%")
+        if sub:
+            clauses.append("(" + " OR ".join(sub) + ")")
+
     # kw_and  — ALL of these must be present
     for kw in _kw_list(args.get("kw_and","")):
         clauses.append("normalized_text LIKE ?")
@@ -833,13 +871,15 @@ def index():
     by_source = [dict(r) for r in conn.execute(
         "SELECT ats, COUNT(*) n FROM jobs GROUP BY ats ORDER BY n DESC"
     ).fetchall()]
+    prof_counts = Counter(classify_profession(t) for (t,) in conn.execute("SELECT title FROM jobs"))
+    by_profession = [{"profession": p, "n": n} for p, n in prof_counts.most_common()]
     recent_log = [dict(r) for r in conn.execute(
         "SELECT * FROM harvest_log ORDER BY started_at DESC LIMIT 12"
     ).fetchall()]
     conn.close()
     return render_template("index.html",
         stats=stats, by_region=by_region, by_lang=by_lang,
-        by_source=by_source, recent_log=recent_log,
+        by_source=by_source, by_profession=by_profession, recent_log=recent_log,
         harvest_status=dict(_harvest_status),
     )
 
@@ -860,7 +900,7 @@ def jobs():
     rows  = conn.execute(
         f"""SELECT id,company,title,location,city,country,region_group,
                    language,ats,source_type,url,keywords_raw,date_posted,
-                   starred,llm_score,llm_notes,created_at
+                   llm_score,llm_notes,created_at,viewed_at
             FROM jobs {where}
             ORDER BY {sort} {order}
             LIMIT ? OFFSET ?""",
@@ -878,10 +918,16 @@ def jobs():
 def job_detail(job_id):
     conn = connect_db()
     row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         return "Not found", 404
     job = dict(row)
+    already_viewed = bool(job.get("viewed_at"))
+    if not already_viewed:
+        conn.execute("UPDATE jobs SET viewed_at=? WHERE id=?", (now_iso(), job_id))
+        conn.commit()
+        job["viewed_at"] = now_iso()
+    conn.close()
     import cv_bank
     jtext = " ".join(filter(None,[
         job.get("title"), job.get("company"), job.get("location"),
@@ -892,6 +938,7 @@ def job_detail(job_id):
         cv_bank.score_bullets(jtext, store))[:20]
     return render_template("job_detail.html",
         job=job, scored_bullets=scored_bullets, bullet_bank_loaded=bool(store),
+        already_viewed=already_viewed,
     )
 
 @app.route("/jobs/<int:job_id>/notes", methods=["POST"])

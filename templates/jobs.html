@@ -99,6 +99,17 @@
             <input type="hidden" name="ats" id="ats-hidden" value="{{ args.get('ats','') }}">
           </div>
 
+          <!-- Profession -->
+          <div class="filter-section">
+            <label class="form-label small fw-semibold mb-1"><i class="bi bi-bar-chart-fill"></i> Trade / Profession</label>
+            <select class="form-select form-select-sm" name="profession">
+              <option value="">All</option>
+              {% for p in ['hpc_research','devops_sre','cloud','linux_sysadmin','network','security','data_db','software_dev','it_support','other_it','unclassified'] %}
+              <option value="{{ p }}" {% if args.get('profession')==p %}selected{% endif %}>{{ p | replace('_',' ') }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
           <!-- Extra toggles -->
           <div class="filter-section">
             <label class="form-label small fw-semibold mb-1">Extra</label>
@@ -106,6 +117,11 @@
               <input class="form-check-input" type="checkbox" name="scored" value="1" id="chk-scored"
                      {% if args.get('scored')=='1' %}checked{% endif %}>
               <label class="form-check-label small" for="chk-scored"><i class="bi bi-robot text-success"></i> LLM scored only</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="unviewed" value="1" id="chk-unviewed"
+                     {% if args.get('unviewed')=='1' %}checked{% endif %}>
+              <label class="form-check-label small" for="chk-unviewed"><i class="bi bi-eye-slash"></i> Not yet looked at</label>
             </div>
           </div>
 
@@ -178,9 +194,10 @@
           </thead>
           <tbody>
             {% for j in jobs %}
-            <tr class="job-row">
+            <tr class="job-row {% if j.viewed_at %}text-muted{% endif %}">
               <td class="small">{{ j.company or '—' }}</td>
               <td>
+                {% if j.viewed_at %}<i class="bi bi-eye-fill text-muted me-1" title="Already looked at"></i>{% endif %}
                 <a href="/jobs/{{ j.id }}" class="text-decoration-none fw-semibold">
                   {{ j.title or '(no title)' }}
                 </a>
