@@ -100,47 +100,49 @@
     </div>
   </div>
 
-  <!-- By profession (title histogram) -->
-  <div class="col-12 col-lg-4">
+  <!-- Histogram: profession / skill toggle -->
+  <div class="col-12 col-lg-5">
     <div class="card h-100">
       <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-bar-chart-fill me-1"></i>By Trade / Profession</span>
+        <div class="btn-group btn-group-sm" role="group">
+          <button type="button" class="btn btn-primary" id="hist-tab-profession">
+            <i class="bi bi-bar-chart-fill me-1"></i>Trade / Profession
+          </button>
+          <button type="button" class="btn btn-outline-primary" id="hist-tab-skill">
+            <i class="bi bi-bar-chart-fill me-1"></i>Skills
+          </button>
+        </div>
         <a href="/export/histogram" class="btn btn-outline-secondary btn-sm py-0"><i class="bi bi-download"></i> CSV</a>
       </div>
-      <div class="card-body p-2">
-        {% set max_n = by_profession[0].n if by_profession else 1 %}
-        {% for row in by_profession %}
-        <a href="/jobs?profession={{ row.profession }}" class="text-decoration-none d-block mb-1">
-          <div class="d-flex justify-content-between small">
-            <span>{{ row.profession | replace('_',' ') }}</span>
-            <span class="fw-bold">{{ row.n }}</span>
-          </div>
-          <div class="progress" style="height:6px;">
-            <div class="progress-bar" style="width:{{ (row.n / max_n * 100) | round(1) }}%;"></div>
-          </div>
-        </a>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  <!-- Top skills requested -->
-  <div class="col-12 col-lg-4">
-    <div class="card h-100">
-      <div class="card-header fw-semibold"><i class="bi bi-bar-chart-fill me-1"></i>Top Skills Requested</div>
       <div class="card-body p-2" style="max-height:340px; overflow-y:auto;">
-        {% set max_skill_n = by_skill[0].n if by_skill else 1 %}
-        {% for row in by_skill %}
-        <a href="/jobs?kw_and={{ row.skill }}" class="text-decoration-none d-block mb-1">
-          <div class="d-flex justify-content-between small">
-            <span>{{ row.skill }}</span>
-            <span class="fw-bold">{{ row.n }}</span>
-          </div>
-          <div class="progress" style="height:6px;">
-            <div class="progress-bar bg-success" style="width:{{ (row.n / max_skill_n * 100) | round(1) }}%;"></div>
-          </div>
-        </a>
-        {% endfor %}
+        <div id="hist-profession">
+          {% set max_n = by_profession[0].n if by_profession else 1 %}
+          {% for row in by_profession %}
+          <a href="/jobs?profession={{ row.profession }}" class="text-decoration-none d-block mb-1">
+            <div class="d-flex justify-content-between small">
+              <span>{{ row.profession | replace('_',' ') }}</span>
+              <span class="fw-bold">{{ row.n }}</span>
+            </div>
+            <div class="progress" style="height:6px;">
+              <div class="progress-bar" style="width:{{ (row.n / max_n * 100) | round(1) }}%;"></div>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+        <div id="hist-skill" class="d-none">
+          {% set max_skill_n = by_skill[0].n if by_skill else 1 %}
+          {% for row in by_skill %}
+          <a href="/jobs?kw_and={{ row.skill }}" class="text-decoration-none d-block mb-1">
+            <div class="d-flex justify-content-between small">
+              <span>{{ row.skill }}</span>
+              <span class="fw-bold">{{ row.n }}</span>
+            </div>
+            <div class="progress" style="height:6px;">
+              <div class="progress-bar bg-success" style="width:{{ (row.n / max_skill_n * 100) | round(1) }}%;"></div>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </div>
@@ -276,5 +278,16 @@ document.getElementById('rate-bulk-btn').addEventListener('click', function() {
     })
     .catch(e => { alert('Error: ' + e); btn.disabled = false; spinner.classList.add('d-none'); });
 });
+
+function showHistogram(which) {
+  document.getElementById('hist-profession').classList.toggle('d-none', which !== 'profession');
+  document.getElementById('hist-skill').classList.toggle('d-none', which !== 'skill');
+  document.getElementById('hist-tab-profession').classList.toggle('btn-primary', which === 'profession');
+  document.getElementById('hist-tab-profession').classList.toggle('btn-outline-primary', which !== 'profession');
+  document.getElementById('hist-tab-skill').classList.toggle('btn-primary', which === 'skill');
+  document.getElementById('hist-tab-skill').classList.toggle('btn-outline-primary', which !== 'skill');
+}
+document.getElementById('hist-tab-profession').addEventListener('click', () => showHistogram('profession'));
+document.getElementById('hist-tab-skill').addEventListener('click', () => showHistogram('skill'));
 </script>
 {% endblock %}
