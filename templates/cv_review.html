@@ -79,6 +79,30 @@
   </div>
 </div>
 
+{% if job.cover_letter_path %}
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <form method="POST" action="/jobs/{{ job.id }}/cover_letter">
+      <div class="card">
+        <div class="card-header fw-semibold">
+          <i class="bi bi-envelope me-1"></i>Cover Letter
+          <span class="text-muted small ms-2">short pitch, factual, edit freely</span>
+        </div>
+        <div class="card-body p-2">
+          <textarea name="cover_letter_text" class="form-control" style="height:220px;"
+                    spellcheck="true">{{ cover_letter_text }}</textarea>
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-save me-1"></i>Save
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {% if job.cv_status == 'approved' and job.url %}
 <div class="alert alert-success mt-3 d-flex justify-content-between align-items-center">
   <span><i class="bi bi-check2-circle me-1"></i>CV approved. Apply using the PDF above and the original posting.</span>

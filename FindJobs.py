@@ -114,6 +114,7 @@ EXTRA_COLS = [
     ("cv_status",     "TEXT"),       # NULL | 'generated' | 'approved'
     ("cv_tex_path",   "TEXT"),
     ("cv_pdf_path",   "TEXT"),
+    ("cover_letter_path", "TEXT"),
     ("cv_generated_at", "TEXT"),
     ("viewed_at",     "TEXT"),       # set the first time the job detail page is opened
 ]
@@ -1173,8 +1174,9 @@ def generate_cv_route(job_id):
         return f"CV generation failed: {e}", 500
     if result["ok"]:
         conn.execute(
-            "UPDATE jobs SET cv_status='generated', cv_tex_path=?, cv_pdf_path=?, cv_generated_at=? WHERE id=?",
-            (result["tex_path"], result["pdf_path"], now_iso(), job_id),
+            "UPDATE jobs SET cv_status='generated', cv_tex_path=?, cv_pdf_path=?, "
+            "cover_letter_path=?, cv_generated_at=? WHERE id=?",
+            (result["tex_path"], result["pdf_path"], result.get("cover_letter_path"), now_iso(), job_id),
         )
         conn.commit()
     conn.close()
@@ -1191,7 +1193,21 @@ def cv_review(job_id):
     tex_content, compile_error = "", None
     if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
         tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
-    return render_template("cv_review.html", job=job, tex_content=tex_content, compile_error=compile_error)
+    cover_letter_text = ""
+    if job.get("cover_letter_path") and Path(job["cover_letter_path"]).exists():
+        cover_letter_text = Path(job["cover_letter_path"]).read_text(encoding="utf-8")
+    return render_template("cv_review.html", job=job, tex_content=tex_content, compile_error=compile_error,
+                            cover_letter_text=cover_letter_text)
+
+@app.route("/jobs/<int:job_id>/cover_letter", methods=["POST"])
+def save_cover_letter(job_id):
+    conn = connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "No cover letter generated yet for this job", 400
+    Path(row["cover_letter_path"]).write_text(request.form.get("cover_letter_text", ""), encoding="utf-8")
+    return redirect(url_for("cv_review", job_id=job_id))
 
 @app.route("/jobs/<int:job_id>/cv/recompile", methods=["POST"])
 def cv_recompile(job_id):

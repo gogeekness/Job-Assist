@@ -253,6 +253,94 @@ def build_skill_categories(bullets: list) -> list:
     return categories
 
 
+def _call_llm(prompt: str, max_tokens: int = 200) -> str:
+    """Shared backend dispatch for generate_intro/generate_cover_letter.
+    Returns the raw (un-escaped) model text, or raises on failure --
+    callers fall back to a template on any exception."""
+    backend = os.environ.get("LLM_BACKEND", "stub")
+    if backend == "anthropic":
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        msg = client.messages.create(
+            model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+    if backend == "openai":
+        from openai import OpenAI
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        resp = client.chat.completions.create(
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.choices[0].message.content.strip()
+    if backend == "ollama":
+        import requests as req
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        model = os.environ.get("OLLAMA_MODEL", "llama3.2")
+        resp = req.post(f"{host}/api/generate",
+                         json={"model": model, "prompt": prompt, "stream": False},
+                         timeout=int(os.environ.get("OLLAMA_TIMEOUT", 180)))
+        resp.raise_for_status()
+        return resp.json().get("response", "").strip()
+    raise ValueError(f"no real LLM for backend={backend!r}")
+
+
+def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
+    """Short, personal cover-letter pitch: 1-2 real factual highlights,
+    ending with one open question related to the job (per the user's
+    spec: 'a pitch statement... to the prospective company'). Plain
+    text, not LaTeX -- no latex_escape here. Stub backend gets a
+    minimal factual template; a real LLM backend writes actual prose."""
+    by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
+    top = by_relevance[:2]
+    company = job.get("company") or "your team"
+    title = job.get("title") or "this role"
+    name = profile.get("name", "")
+
+    if os.environ.get("LLM_BACKEND", "stub") == "stub":
+        highlight = top[0]["summary_raw"] if top else ""
+        return (
+            f"Dear Hiring Team at {company},\n\n"
+            f"I'm writing about the {title} opening. {highlight}\n\n"
+            f"I'd welcome the chance to talk through how that experience applies here -- "
+            f"what's the biggest priority for whoever takes this on in the first few months?\n\n"
+            f"Best regards,\n{name}"
+        )
+
+    prompt = f"""Write a short cover letter (4-5 sentences, one paragraph, no subject line) from a job
+candidate to a hiring team, as a genuine pitch -- confident and personal, not generic corporate language.
+
+Use ONLY these real, factual achievements -- never invent anything not listed:
+{chr(10).join('- ' + g['summary_raw'] for g in top)}
+{chr(10).join('- ' + b for g in top for b in g['bullets_raw'][:2])}
+
+Job: {title} at {company}
+Job description excerpt: {(job.get('description') or '')[:1000]}
+
+Requirements:
+- Address it to the hiring team at {company}.
+- Reference 1-2 of the achievements above, factually, no exaggeration.
+- End with exactly ONE open question related to the job or company that invites a reply -- this is
+  part of the pitch, not small talk.
+- Sign off as {name}.
+- Output ONLY the letter text."""
+
+    try:
+        return _call_llm(prompt, max_tokens=350)
+    except Exception:
+        highlight = top[0]["summary_raw"] if top else ""
+        return (
+            f"Dear Hiring Team at {company},\n\n"
+            f"I'm writing about the {title} opening. {highlight}\n\n"
+            f"I'd welcome the chance to talk through how that experience applies here -- "
+            f"what's the biggest priority for whoever takes this on in the first few months?\n\n"
+            f"Best regards,\n{name}"
+        )
+
+
 def generate_intro(job: dict, groups: list, profile: dict) -> str:
     """One small LLM call for a factual intro paragraph, prompted to use
     only the selected bullets/skills -- falls back to a template
@@ -282,33 +370,7 @@ Candidate's relevant experience (factual, from their real CV bullet bank):
 Respond with ONLY the 2-sentence summary text, no preamble, no quotes."""
 
     try:
-        if backend == "anthropic":
-            import anthropic
-            client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-            msg = client.messages.create(
-                model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return latex_escape(msg.content[0].text.strip())
-        elif backend == "openai":
-            from openai import OpenAI
-            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-            resp = client.chat.completions.create(
-                model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return latex_escape(resp.choices[0].message.content.strip())
-        elif backend == "ollama":
-            import requests as req
-            host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-            model = os.environ.get("OLLAMA_MODEL", "llama3.2")
-            resp = req.post(f"{host}/api/generate",
-                             json={"model": model, "prompt": prompt, "stream": False},
-                             timeout=int(os.environ.get("OLLAMA_TIMEOUT", 180)))
-            resp.raise_for_status()
-            return latex_escape(resp.json().get("response", "").strip())
+        return latex_escape(_call_llm(prompt, max_tokens=200))
     except Exception:
         pass
 
@@ -457,6 +519,9 @@ def generate_for_job(job_id: int) -> dict:
         elif page1_count > 1:
             page1_count -= 1
 
+    cover_letter_path = outdir / "cover_letter.txt"
+    cover_letter_path.write_text(generate_cover_letter(job, groups, profile), encoding="utf-8")
+
     return {
         "ok": result["ok"],
         "fit_ok": result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0,
@@ -465,6 +530,7 @@ def generate_for_job(job_id: int) -> dict:
         "attempts": attempts,
         "tex_path": str(tex_path),
         "pdf_path": str(tex_path.with_suffix(".pdf")) if result["ok"] else None,
+        "cover_letter_path": str(cover_letter_path),
         "log_tail": result["log_tail"],
     }
 
