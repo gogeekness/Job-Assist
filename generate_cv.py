@@ -31,15 +31,28 @@ PROFILE_PATH = BASE / "profile.local.json"
 PROFILE_EXAMPLE_PATH = BASE / "profile.example.json"
 OUTPUT_DIR = BASE / "generated"
 
-# Detail-bullet budget per position, indexed by relevance rank (0 = best
-# match for this job). The reference CVs show multiple bullets per role
-# throughout, not just the most job-relevant ones, so every position gets
-# a floor of 2 (when the CSV actually has that many bullets for it) --
-# rank only decides who gets *more* (up to 4), not who gets starved down
-# to 0-1. The shrink-to-fit loop (generate_for_job) trims this budget
-# uniformly if the generous default doesn't actually fit on 2 pages.
-DETAIL_BUDGET_BY_RANK = [4, 4, 3, 3, 2, 2, 2, 2, 2, 2]
-PAGE1_POSITION_COUNT = 4  # matches the reference design's page1/page2 split
+# Per-position detail-bullet targets (min, max), keyed by the position's
+# `period` string from the CSV timeline (unique per position here) --
+# matches the density of Richard's own saved/reference CVs exactly,
+# rather than an algorithmic relevance-rank taper. Relevance scoring
+# still decides WHICH bullets fill this budget (see
+# _rank_bullets_with_fallback), just not HOW MANY. "droppable": True
+# marks the sole position allowed to disappear entirely (not just lose
+# detail bullets) if page 2 is still too tight after every other budget
+# has been trimmed to its floor.
+POSITION_BULLET_TARGETS = {
+    "2025–present": {"min": 4, "max": 5},   # Peer Network PSU
+    "2024":         {"min": 0, "max": 1},   # Excelgens / Native Teams
+    "2023–2024":    {"min": 3, "max": 5},   # Herbst Datentechnik GmbH
+    "2019–2023":    {"min": 3, "max": 5},   # Operational Services GmbH / Modus
+    "2018":         {"min": 0, "max": 0},   # YOC -- summary only
+    "2016–2017":    {"min": 3, "max": 5},   # Mindtree onsite at Microsoft
+    "2015–2016":    {"min": 3, "max": 4},   # CompuCom onsite at Amazon
+    "2013–2014":    {"min": 0, "max": 1},   # Abacus Service Corporation on Intel (HPC)
+    "2005–2013":    {"min": 0, "max": 1, "droppable": True},  # CompuCom onsite at Intel
+}
+DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position not in the table above
+PAGE1_POSITION_COUNT = 3  # Peer + Excelgens + Herbst, per the reference split
 MAX_FIT_ITERATIONS = 6
 
 SKILL_CATEGORIES = [
@@ -154,16 +167,21 @@ def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
     return scored
 
 
-def build_position_groups(job: dict, jtext: str, detail_budget_by_rank=DETAIL_BUDGET_BY_RANK):
+def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
     happen to score well against this job. Each position always shows its
     one-line summary; how many additional itemized detail bullets it gets
-    depends on its relevance rank for *this* job, so a minor/old position
-    still appears (summary only) instead of disappearing entirely."""
+    is a fixed (min, max) target matching the density of Richard's own
+    saved CVs (POSITION_BULLET_TARGETS), not an algorithmic taper.
+    `trim_level` shrinks every position's budget toward its floor by that
+    many steps (for the shrink-to-fit loop); `drop_droppable` omits the
+    sole position marked droppable entirely, as a last resort once every
+    budget is already at its floor and it still doesn't fit."""
     timeline = cv_bank.build_position_timeline()
 
     # relevance rank per position = best keyword match among its own bullets
+    # (still used to pick WHICH bullets fill the fixed budget, and for intro generation)
     scored_positions = []
     for pos in timeline:
         best_score = 0
@@ -180,9 +198,12 @@ def build_position_groups(job: dict, jtext: str, detail_budget_by_rank=DETAIL_BU
 
     groups = []
     for pos in timeline:  # chronological order for the actual rendered CV
-        rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
-        budget = detail_budget_by_rank[rank] if rank < len(detail_budget_by_rank) else 2
+        target = POSITION_BULLET_TARGETS.get(pos["period"], DEFAULT_BULLET_TARGET)
+        if drop_droppable and target.get("droppable"):
+            continue
+        budget = max(target["min"], target["max"] - trim_level)
 
+        rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
         ranked_bullets = _rank_bullets_with_fallback(pos["bullets"], jtext)
         detail_texts, detail_texts_raw = [], []
         for b in ranked_bullets:
@@ -402,20 +423,22 @@ def generate_for_job(job_id: int) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     tex_path = outdir / "cv.tex"
 
-    budget = list(DETAIL_BUDGET_BY_RANK)
+    trim_level = 0
+    drop_droppable = False
     page1_count = PAGE1_POSITION_COUNT
     attempts = []
     intro = None
 
     for attempt in range(1, MAX_FIT_ITERATIONS + 1):
-        groups = build_position_groups(job, jtext, detail_budget_by_rank=budget)
+        groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
             intro = generate_intro(job, groups, profile)
         tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count)
         tex_path.write_text(tex_content, encoding="utf-8")
 
         result = compile_pdf(tex_path)
-        attempts.append({"attempt": attempt, "budget": list(budget), "page1_count": page1_count,
+        attempts.append({"attempt": attempt, "trim_level": trim_level, "drop_droppable": drop_droppable,
+                          "page1_count": page1_count,
                           "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
         if not result["ok"]:
@@ -423,10 +446,14 @@ def generate_for_job(job_id: int) -> dict:
         if result["page_count"] == 2 and result["overfull_vbox"] == 0:
             break
 
-        # shrink and retry: trim detail bullets first (cheapest content to
-        # lose), then rebalance the page1/page2 split if still overflowing
-        if any(budget):
-            budget = [max(0, n - 1) for n in budget]
+        # shrink and retry: trim every position's detail-bullet budget
+        # toward its own floor first (cheapest content to lose), then drop
+        # the sole "droppable" position entirely, then rebalance the
+        # page1/page2 split as a last resort
+        if trim_level < 5:
+            trim_level += 1
+        elif not drop_droppable:
+            drop_droppable = True
         elif page1_count > 1:
             page1_count -= 1
 
