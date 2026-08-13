@@ -591,7 +591,8 @@ IT_SEARCH_LOCATIONS = [
     ("Italy",    "italy"),
     ("Malta",    "malta"),
 ]
-IT_SEARCH_TERMS = ["Linux system administrator", "DevOps engineer Linux"]
+IT_SEARCH_TERMS = ["Linux system administrator", "DevOps engineer Linux",
+                    "Site Reliability Engineer", "Platform Engineer Linux"]
 
 def _do_harvest_jobspy():
     """speedyapply/JobSpy — reaches LinkedIn/Indeed/Glassdoor/ZipRecruiter,
@@ -623,7 +624,7 @@ def _do_harvest_jobspy():
                     df = jobspy.scrape_jobs(
                         site_name=sites, search_term=term,
                         location=location_name, country_indeed=country_code,
-                        results_wanted=15, hours_old=336,
+                        results_wanted=50, hours_old=336,
                         linkedin_fetch_description=True,
                     )
                 except Exception as e:
