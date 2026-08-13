@@ -22,7 +22,7 @@ import sqlite3
 import sys
 import threading
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -383,6 +383,78 @@ def ensure_schema():
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {coldef}")
     conn.commit()
     conn.close()
+
+def _load_local_config() -> dict:
+    if LOCAL_CONFIG_PATH.exists():
+        try:
+            loaded = json.loads(LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                return loaded
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {}
+
+def _save_local_config(updates: dict):
+    # merge, not overwrite -- config.local.json holds settings from
+    # multiple independent forms (cv paths, job retention, ...)
+    cfg = _load_local_config()
+    cfg.update(updates)
+    LOCAL_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+DEFAULT_JOB_RETENTION_DAYS = 45  # within the requested 30-60 day range
+
+def _parse_job_date(value: str):
+    """date_posted formats vary a lot by source: arbeitnow gives a unix
+    epoch ("1786021243"), jobspy (linkedin/indeed/...) gives "YYYY-MM-DD",
+    EURAXESS's RSS gives RFC 822 ("Wed, 07 Aug 2026 12:00:00 GMT"), and
+    Greenhouse gives nothing at all. Try each; return None if none fit."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(value))
+        except (ValueError, OSError):
+            return None
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d")
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(value)
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
+    except (TypeError, ValueError):
+        return None
+
+def cleanup_old_jobs(days: int) -> int:
+    """Delete postings older than `days` -- prefers the actual posting
+    date (date_posted) when it's present and parseable, falling back to
+    created_at (when we scraped it) otherwise, since date_posted is
+    entirely missing for Greenhouse, our largest source. Jobs with a
+    generated/approved CV or saved notes are kept regardless of age, so
+    cleanup can't silently discard work already invested."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    conn = connect_db()
+    rows = conn.execute(
+        "SELECT id, date_posted, created_at FROM jobs "
+        "WHERE cv_status IS NULL AND (notes IS NULL OR notes='')"
+    ).fetchall()
+    stale_ids = []
+    for row in rows:
+        effective = _parse_job_date(row["date_posted"])
+        if effective is None:
+            try:
+                effective = datetime.strptime(row["created_at"][:19], "%Y-%m-%dT%H:%M:%S")
+            except (ValueError, TypeError):
+                continue
+        if effective < cutoff:
+            stale_ids.append(row["id"])
+    if stale_ids:
+        conn.executemany("DELETE FROM jobs WHERE id=?", [(i,) for i in stale_ids])
+        conn.commit()
+    conn.close()
+    return len(stale_ids)
 
 def upsert_job(conn, rec: dict):
     # Locked-in filtering rule: non-Germany EU postings must be English --
@@ -1179,6 +1251,7 @@ def harvest(source):
     with _harvest_lock:
         if _harvest_status.get(source,{}).get("state") == "running":
             return jsonify({"error": "already running"}), 409
+    cleanup_old_jobs(_load_local_config().get("job_retention_days", DEFAULT_JOB_RETENTION_DAYS))
     threading.Thread(target=_HARVEST_FNS[source], daemon=True).start()
     return jsonify({"started": source})
 
@@ -1225,9 +1298,11 @@ def settings():
         "ollama_host":     os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
         "ollama_model":    os.environ.get("OLLAMA_MODEL", "llama3.2"),
     }
+    retention_days = _load_local_config().get("job_retention_days", DEFAULT_JOB_RETENTION_DAYS)
     return render_template("settings.html",
         boards=boards, bank_stats=bank_stats,
         db_stats=db_stats, llm_backend=llm_config["backend"], llm_config=llm_config,
+        retention_days=retention_days, cleaned=request.args.get("cleaned"),
     )
 
 @app.route("/settings/boards",    methods=["POST"])
@@ -1237,13 +1312,23 @@ def save_boards():
 
 @app.route("/settings/cv_paths", methods=["POST"])
 def save_cv_paths():
-    cfg = {}
+    updates = {}
     for field in ("csv_path", "tex_dir", "odt_dir"):
         val = (request.form.get(field, "") or "").strip()
         if val:
-            cfg[field] = val
-    LOCAL_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            updates[field] = val
+    _save_local_config(updates)
     return redirect(url_for("settings"))
+
+@app.route("/settings/cleanup", methods=["POST"])
+def save_cleanup_settings():
+    try:
+        days = max(1, int(request.form.get("retention_days", DEFAULT_JOB_RETENTION_DAYS)))
+    except (TypeError, ValueError):
+        days = DEFAULT_JOB_RETENTION_DAYS
+    _save_local_config({"job_retention_days": days})
+    deleted = cleanup_old_jobs(days)
+    return redirect(url_for("settings", cleaned=deleted))
 
 @app.route("/settings/rebuild_bullets", methods=["POST"])
 def rebuild_bullets():

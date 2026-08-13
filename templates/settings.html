@@ -21,6 +21,33 @@
     </div>
   </div>
 
+  <!-- Job cleanup -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header fw-semibold"><i class="bi bi-trash3 me-1"></i>Old Postings Cleanup</div>
+      <div class="card-body">
+        {% if cleaned is not none %}
+        <div class="alert alert-success py-2">Removed {{ cleaned }} old posting(s).</div>
+        {% endif %}
+        <p class="text-muted small mb-2">
+          Runs automatically before every harvest, and can be triggered manually below. Uses the actual
+          posting date when available (falls back to when we found it, since Greenhouse never provides
+          a posting date). Jobs with a generated/approved CV or saved notes are always kept, regardless of age.
+        </p>
+        <form method="POST" action="/settings/cleanup" class="d-flex align-items-end gap-2">
+          <div>
+            <label class="form-label small">Remove postings older than (days)</label>
+            <input type="number" name="retention_days" class="form-control form-control-sm" style="width:100px"
+                   min="30" max="60" value="{{ retention_days }}">
+          </div>
+          <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-trash3 me-1"></i>Save &amp; clean up now
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Greenhouse boards -->
   <div class="col-12">
     <div class="card h-100">
