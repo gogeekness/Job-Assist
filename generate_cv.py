@@ -167,21 +167,72 @@ def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
     return scored
 
 
-def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False):
+def llm_recommend_bullets(job: dict, timeline: list):
+    """Ask the LLM to pick which real bullets go into the CV for this
+    specific job -- the target density Richard described (recent/relevant
+    roles get more detail, minor roles get just a summary) is passed as
+    guidance, not a hard rule, so the LLM can use judgment per job rather
+    than a rigid per-employer count. Returns {period: {...}} or None on
+    the stub backend / any failure, in which case the caller falls back
+    to the algorithmic POSITION_BULLET_TARGETS system below."""
+    if os.environ.get("LLM_BACKEND", "stub") == "stub":
+        return None
+
+    blocks = []
+    for pos in timeline:
+        lines = [f"Position: {pos['employer']} — {pos['position_title']} ({pos['period']})"]
+        for b in pos["bullets"]:
+            lines.append(f"  [{b['id']}] {cv_bank.bullet_text(b)}")
+        blocks.append("\n".join(lines))
+
+    prompt = f"""You are selecting which real, factual bullet points to include in a tailored CV for this job.
+
+Job: {job.get('title')} at {job.get('company')}
+Description excerpt: {(job.get('description') or '')[:1500]}
+
+Candidate's full real career history and available bullets, most recent first. EVERY position below
+MUST appear in your output -- never omit a position entirely, even if you pick zero detail bullets
+for it (a bare one-line summary is fine for minor/short-tenure/old roles).
+
+{chr(10).join('---' + chr(10) + b for b in blocks)}
+
+General shape to aim for (guidance based on Richard's own real CVs, not a hard rule -- use judgment
+for THIS specific job): the 1-3 most recent/relevant roles typically get 3-5 detail bullets each;
+short-tenure or less relevant roles typically get 0-2. Page 1 should hold roughly the 3 most recent
+positions; the rest go on page 2. Never invent a bullet -- only use the exact [ID]s listed above.
+
+Respond with ONLY valid JSON, no markdown fences, exactly one entry per position above, in this shape:
+{{"positions": [
+  {{"period": "<period exactly as given above>", "summary_bullet_id": "<ID to use as the one-line summary>",
+    "detail_bullet_ids": ["<ID>", "..."]}}
+]}}"""
+
+    try:
+        raw = _call_llm(prompt, max_tokens=1500)
+        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+        raw = re.sub(r"\n?```$", "", raw)
+        data = json.loads(raw)
+        return {p["period"]: p for p in data.get("positions", []) if p.get("period")}
+    except Exception:
+        return None
+
+
+def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False,
+                           llm_recommendation: dict = None):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
     happen to score well against this job. Each position always shows its
-    one-line summary; how many additional itemized detail bullets it gets
-    is a fixed (min, max) target matching the density of Richard's own
-    saved CVs (POSITION_BULLET_TARGETS), not an algorithmic taper.
-    `trim_level` shrinks every position's budget toward its floor by that
-    many steps (for the shrink-to-fit loop); `drop_droppable` omits the
-    sole position marked droppable entirely, as a last resort once every
-    budget is already at its floor and it still doesn't fit."""
+    one-line summary. Detail-bullet selection prefers `llm_recommendation`
+    (see llm_recommend_bullets) when given; otherwise falls back to a
+    fixed (min, max) target per position (POSITION_BULLET_TARGETS),
+    matching the density of Richard's own saved CVs. `trim_level` and
+    `drop_droppable` only apply to the fallback path (the shrink-to-fit
+    retry loop degrades to it if the LLM's first pass doesn't fit)."""
     timeline = cv_bank.build_position_timeline()
 
     # relevance rank per position = best keyword match among its own bullets
-    # (still used to pick WHICH bullets fill the fixed budget, and for intro generation)
+    # (used for intro generation, and by the fallback path to pick WHICH
+    # bullets fill its fixed budget)
     scored_positions = []
     for pos in timeline:
         best_score = 0
@@ -198,32 +249,50 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
 
     groups = []
     for pos in timeline:  # chronological order for the actual rendered CV
-        target = POSITION_BULLET_TARGETS.get(pos["period"], DEFAULT_BULLET_TARGET)
-        if drop_droppable and target.get("droppable"):
-            continue
-        budget = max(target["min"], target["max"] - trim_level)
-
         rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
-        ranked_bullets = _rank_bullets_with_fallback(pos["bullets"], jtext)
-        detail_texts, detail_texts_raw = [], []
-        for b in ranked_bullets:
-            if b["id"] == pos["summary_bullet_id"]:
+        bullets_by_id = {b["id"]: b for b in pos["bullets"]}
+        rec = llm_recommendation.get(pos["period"]) if llm_recommendation else None
+
+        if rec is not None:
+            summary_bullet = bullets_by_id.get(rec.get("summary_bullet_id")) or \
+                bullets_by_id.get(pos["summary_bullet_id"])
+            summary_text = cv_bank.bullet_text(summary_bullet) if summary_bullet else pos["summary_text"]
+            detail_texts, detail_texts_raw = [], []
+            for bid in rec.get("detail_bullet_ids", []):
+                b = bullets_by_id.get(bid)  # never invent -- skip any ID the LLM hallucinated
+                if not b or b is summary_bullet:
+                    continue
+                raw = pick_variant_text(b, jtext)
+                text = latex_escape(raw)
+                if text:
+                    detail_texts.append(text)
+                    detail_texts_raw.append(raw)
+        else:
+            target = POSITION_BULLET_TARGETS.get(pos["period"], DEFAULT_BULLET_TARGET)
+            if drop_droppable and target.get("droppable"):
                 continue
-            if len(detail_texts) >= budget:
-                break
-            raw = pick_variant_text(b, jtext)
-            text = latex_escape(raw)
-            if text:
-                detail_texts.append(text)
-                detail_texts_raw.append(raw)
+            budget = max(target["min"], target["max"] - trim_level)
+            summary_text = pos["summary_text"]
+            ranked_bullets = _rank_bullets_with_fallback(pos["bullets"], jtext)
+            detail_texts, detail_texts_raw = [], []
+            for b in ranked_bullets:
+                if b["id"] == pos["summary_bullet_id"]:
+                    continue
+                if len(detail_texts) >= budget:
+                    break
+                raw = pick_variant_text(b, jtext)
+                text = latex_escape(raw)
+                if text:
+                    detail_texts.append(text)
+                    detail_texts_raw.append(raw)
 
         groups.append({
             "employer": latex_escape(pos["employer"]),
             "employer_raw": pos["employer"],
             "position_title": latex_escape(pos["position_title"]),
             "period": latex_escape(pos["period"]),
-            "summary": latex_escape(pos["summary_text"]),
-            "summary_raw": pos["summary_text"],
+            "summary": latex_escape(summary_text),
+            "summary_raw": summary_text,
             "bullets": detail_texts,
             "bullets_raw": detail_texts_raw,
             "relevance_rank": rank,
@@ -485,6 +554,9 @@ def generate_for_job(job_id: int) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     tex_path = outdir / "cv.tex"
 
+    timeline = cv_bank.build_position_timeline()
+    llm_recommendation = llm_recommend_bullets(job, timeline)  # None on stub backend / failure
+
     trim_level = 0
     drop_droppable = False
     page1_count = PAGE1_POSITION_COUNT
@@ -492,14 +564,20 @@ def generate_for_job(job_id: int) -> dict:
     intro = None
 
     for attempt in range(1, MAX_FIT_ITERATIONS + 1):
-        groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable)
+        # the LLM's picks get exactly one shot (attempt 1); if it doesn't
+        # fit, retries degrade to the algorithmic fixed-target system
+        # rather than trying to renegotiate the LLM's selection
+        use_llm = llm_recommendation if attempt == 1 else None
+        groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable,
+                                        llm_recommendation=use_llm)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
             intro = generate_intro(job, groups, profile)
         tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count)
         tex_path.write_text(tex_content, encoding="utf-8")
 
         result = compile_pdf(tex_path)
-        attempts.append({"attempt": attempt, "trim_level": trim_level, "drop_droppable": drop_droppable,
+        attempts.append({"attempt": attempt, "used_llm_recommendation": use_llm is not None,
+                          "trim_level": trim_level, "drop_droppable": drop_droppable,
                           "page1_count": page1_count,
                           "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
