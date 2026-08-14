@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Job Portal — local web UI for job harvesting and CV mapping.
+Job Assist — local web UI for job harvesting and CV mapping.
 
 Run:
     python3.12 FindJobs.py
@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import threading
@@ -1159,6 +1160,82 @@ def rate_bulk():
     threading.Thread(target=_do_rate_bulk, daemon=True).start()
     return jsonify({"started": "rate_bulk"})
 
+
+def _do_rate_selected(job_ids):
+    source = "rate_selected"
+    _set_status(source, "running")
+    conn = connect_db()
+    lid = _log_start(conn, source)
+    count, error = 0, None
+    try:
+        import cv_bank
+        candidates = cv_bank.recent_bullets()  # computed once, reused for every job this run
+        for jid in job_ids:
+            row = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+            if not row:
+                continue
+            job = dict(row)
+            if job.get("llm_score") is not None:
+                continue  # already rated -- selecting it again shouldn't cost another LLM call
+            if not is_it_relevant(job):
+                continue
+            try:
+                result = _rate_one_job(job, candidates)
+            except Exception as e:
+                error = str(e)
+                continue
+            conn.execute(
+                "UPDATE jobs SET llm_score=?, llm_notes=? WHERE id=?",
+                (result.get("score"), json.dumps(result, ensure_ascii=False), job["id"]),
+            )
+            conn.commit()
+            count += 1
+    except Exception as e:
+        error = str(e)
+    _log_finish(conn, lid, count, error)
+    conn.close()
+    _set_status(source, "done", count, error)
+
+@app.route("/jobs/rate_selected", methods=["POST"])
+def rate_selected():
+    job_ids = (request.get_json(silent=True) or {}).get("job_ids") or []
+    try:
+        job_ids = [int(i) for i in job_ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid job_ids"}), 400
+    if not job_ids:
+        return jsonify({"error": "no jobs selected"}), 400
+    with _harvest_lock:
+        if _harvest_status.get("rate_selected", {}).get("state") == "running":
+            return jsonify({"error": "already running"}), 409
+    threading.Thread(target=_do_rate_selected, args=(job_ids,), daemon=True).start()
+    return jsonify({"started": "rate_selected"})
+
+@app.route("/jobs/delete_selected", methods=["POST"])
+def delete_selected():
+    job_ids = (request.get_json(silent=True) or {}).get("job_ids") or []
+    try:
+        job_ids = [int(i) for i in job_ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid job_ids"}), 400
+    if not job_ids:
+        return jsonify({"error": "no jobs selected"}), 400
+
+    generated_root = (BASE / "generated").resolve()
+    conn = connect_db()
+    deleted = 0
+    for jid in job_ids:
+        row = conn.execute("SELECT cv_tex_path FROM jobs WHERE id=?", (jid,)).fetchone()
+        if row and row["cv_tex_path"]:
+            job_dir = Path(row["cv_tex_path"]).resolve().parent
+            if generated_root in job_dir.parents:
+                shutil.rmtree(job_dir, ignore_errors=True)
+        conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
+        deleted += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"deleted": deleted})
+
 @app.route("/jobs/<int:job_id>/generate_cv", methods=["POST"])
 def generate_cv_route(job_id):
     import generate_cv
@@ -1443,7 +1520,7 @@ if __name__ == "__main__":
     ensure_schema()
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5050))
-    print(f"Job Portal running at  http://{host}:{port}")
+    print(f"Job Assist running at  http://{host}:{port}")
     print("  Set HOST=0.0.0.0 to allow LAN/OpenStack access")
     print("  Set PORT=XXXX  to change port")
     app.run(host=host, port=port, debug=True)

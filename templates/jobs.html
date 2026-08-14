@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Jobs ({{ total }}) — Job Portal{% endblock %}
+{% block title %}Jobs ({{ total }}) — Job Assist{% endblock %}
 
 {% block content %}
 <div class="row g-3">
@@ -178,11 +178,24 @@
       </div>
     </div>
 
+    <!-- Selection action bar -->
+    <div class="d-flex align-items-center gap-2 mb-2 p-2 bg-body-tertiary rounded border d-none" id="selection-bar">
+      <span class="small fw-semibold"><span id="sel-count">0</span> selected</span>
+      <button class="btn btn-outline-primary btn-sm" id="rate-selected-btn">
+        <i class="bi bi-robot"></i> Rate Selected
+        <span class="spinner-border spinner-border-sm ms-1 d-none" id="rate-selected-spinner"></span>
+      </button>
+      <button class="btn btn-outline-danger btn-sm" id="delete-selected-btn">
+        <i class="bi bi-trash"></i> Delete Selected
+      </button>
+    </div>
+
     <div class="card">
       <div class="table-responsive">
         <table class="table table-hover table-sm mb-0">
           <thead class="table-light">
             <tr>
+              <th style="width:2rem"><input type="checkbox" id="select-all-check" class="form-check-input"></th>
               <th>Company</th>
               <th>Title</th>
               <th>Location</th>
@@ -195,6 +208,7 @@
           <tbody>
             {% for j in jobs %}
             <tr class="job-row {% if j.viewed_at %}text-muted{% endif %}">
+              <td><input type="checkbox" class="form-check-input job-check" value="{{ j.id }}"></td>
               <td class="small">{{ j.company or '—' }}</td>
               <td>
                 {% if j.viewed_at %}<i class="bi bi-eye-fill text-muted me-1" title="Already looked at"></i>{% endif %}
@@ -238,7 +252,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="8" class="text-center text-muted py-4">
+              <td colspan="9" class="text-center text-muted py-4">
                 No jobs match current filters.
                 <a href="/jobs">Clear all filters</a> or
                 <a href="/">harvest more jobs</a>.
@@ -294,6 +308,91 @@ function syncCheckboxes(cls, hiddenId) {
 syncCheckboxes('region-check', 'region-hidden');
 syncCheckboxes('lang-check',   'lang-hidden');
 syncCheckboxes('ats-check',    'ats-hidden');
+
+// ── Job-list multi-select: batch rate / delete ──────────────────────────────
+const selectAllCheck   = document.getElementById('select-all-check');
+const jobChecks        = () => [...document.querySelectorAll('.job-check')];
+const selectionBar     = document.getElementById('selection-bar');
+const selCountEl       = document.getElementById('sel-count');
+const rateSelectedBtn  = document.getElementById('rate-selected-btn');
+const rateSelectedSpin = document.getElementById('rate-selected-spinner');
+const deleteSelectedBtn= document.getElementById('delete-selected-btn');
+
+function selectedIds() {
+  return jobChecks().filter(c => c.checked).map(c => parseInt(c.value, 10));
+}
+
+function updateSelectionBar() {
+  const ids = selectedIds();
+  selCountEl.textContent = ids.length;
+  selectionBar.classList.toggle('d-none', ids.length === 0);
+  const all = jobChecks();
+  selectAllCheck.checked = all.length > 0 && ids.length === all.length;
+  selectAllCheck.indeterminate = ids.length > 0 && ids.length < all.length;
+}
+
+selectAllCheck.addEventListener('change', () => {
+  jobChecks().forEach(c => c.checked = selectAllCheck.checked);
+  updateSelectionBar();
+});
+jobChecks().forEach(c => c.addEventListener('change', updateSelectionBar));
+
+function pollRateSelected() {
+  const iv = setInterval(() => {
+    fetch('/harvest/status').then(r => r.json()).then(data => {
+      const info = data['rate_selected'];
+      if (!info || info.state !== 'running') {
+        clearInterval(iv);
+        location.reload();
+      }
+    });
+  }, 2000);
+}
+
+rateSelectedBtn.addEventListener('click', () => {
+  const ids = selectedIds();
+  if (!ids.length) return;
+  rateSelectedBtn.disabled = true;
+  rateSelectedSpin.classList.remove('d-none');
+  fetch('/jobs/rate_selected', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({job_ids: ids}),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+        rateSelectedBtn.disabled = false;
+        rateSelectedSpin.classList.add('d-none');
+        return;
+      }
+      pollRateSelected();
+    })
+    .catch(e => {
+      alert('Error: ' + e);
+      rateSelectedBtn.disabled = false;
+      rateSelectedSpin.classList.add('d-none');
+    });
+});
+
+deleteSelectedBtn.addEventListener('click', () => {
+  const ids = selectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} job(s)? This also removes any generated CV/cover letter files. This cannot be undone.`)) return;
+  deleteSelectedBtn.disabled = true;
+  fetch('/jobs/delete_selected', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({job_ids: ids}),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert(data.error); deleteSelectedBtn.disabled = false; return; }
+      location.reload();
+    })
+    .catch(e => { alert('Error: ' + e); deleteSelectedBtn.disabled = false; });
+});
 
 </script>
 {% endblock %}
