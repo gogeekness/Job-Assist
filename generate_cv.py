@@ -357,57 +357,61 @@ def _call_llm(prompt: str, max_tokens: int = 200) -> str:
     raise ValueError(f"no real LLM for backend={backend!r}")
 
 
+_DEFAULT_OPEN_QUESTION = (
+    "I'd welcome the chance to talk through how that experience applies here -- "
+    "what's the biggest priority for whoever takes this on in the first few months?"
+)
+
+
 def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
-    """Short, personal cover-letter pitch: 1-2 real factual highlights,
-    ending with one open question related to the job (per the user's
-    spec: 'a pitch statement... to the prospective company'). Plain
-    text, not LaTeX -- no latex_escape here. Stub backend gets a
-    minimal factual template; a real LLM backend writes actual prose."""
+    """Fixed template (guaranteed shape/reliability) with two small LLM-
+    filled gaps -- a pitch sentence and an open question -- rather than
+    asking the model to compose a whole letter freeform. A smaller/local
+    model (e.g. Ollama+Mistral) is much more reliable at one focused
+    sentence at a time than at holding together a whole coherent letter;
+    each gap also degrades independently (a bad/missing pitch sentence
+    doesn't cost the question, and vice versa) instead of an all-or-
+    nothing fallback to a generic template on any failure."""
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
     top = by_relevance[:2]
     company = job.get("company") or "your team"
     title = job.get("title") or "this role"
     name = profile.get("name", "")
+    fallback_highlight = top[0]["summary_raw"] if top else ""
 
-    if os.environ.get("LLM_BACKEND", "stub") == "stub":
-        highlight = top[0]["summary_raw"] if top else ""
-        return (
-            f"Dear Hiring Team at {company},\n\n"
-            f"I'm writing about the {title} opening. {highlight}\n\n"
-            f"I'd welcome the chance to talk through how that experience applies here -- "
-            f"what's the biggest priority for whoever takes this on in the first few months?\n\n"
-            f"Best regards,\n{name}"
-        )
+    pitch_sentence, open_question = fallback_highlight, _DEFAULT_OPEN_QUESTION
 
-    prompt = f"""Write a short cover letter (4-5 sentences, one paragraph, no subject line) from a job
-candidate to a hiring team, as a genuine pitch -- confident and personal, not generic corporate language.
+    if os.environ.get("LLM_BACKEND", "stub") != "stub":
+        prompt = f"""Fill in exactly two blanks for a cover letter. Output ONLY these two lines, nothing else:
+PITCH: <one confident, natural first-person sentence pitching the candidate for this job, using ONLY
+the real facts below -- paraphrase naturally, don't just copy a fact verbatim>
+QUESTION: <one open question specific to this job/company that invites a reply -- part of the pitch,
+not small talk>
 
-Use ONLY these real, factual achievements -- never invent anything not listed:
+Real facts to draw from (factual only, never invent anything beyond this):
 {chr(10).join('- ' + g['summary_raw'] for g in top)}
 {chr(10).join('- ' + b for g in top for b in g['bullets_raw'][:2])}
 
 Job: {title} at {company}
-Job description excerpt: {(job.get('description') or '')[:1000]}
+Job description excerpt: {(job.get('description') or '')[:800]}"""
 
-Requirements:
-- Address it to the hiring team at {company}.
-- Reference 1-2 of the achievements above, factually, no exaggeration.
-- End with exactly ONE open question related to the job or company that invites a reply -- this is
-  part of the pitch, not small talk.
-- Sign off as {name}.
-- Output ONLY the letter text."""
+        try:
+            raw = _call_llm(prompt, max_tokens=200)
+            pitch_match = re.search(r"PITCH:\s*(.+)", raw)
+            question_match = re.search(r"QUESTION:\s*(.+)", raw)
+            if pitch_match and pitch_match.group(1).strip():
+                pitch_sentence = pitch_match.group(1).strip()
+            if question_match and question_match.group(1).strip():
+                open_question = question_match.group(1).strip()
+        except Exception:
+            pass  # keep the factual fallback values for whichever gap(s) didn't fill
 
-    try:
-        return _call_llm(prompt, max_tokens=350)
-    except Exception:
-        highlight = top[0]["summary_raw"] if top else ""
-        return (
-            f"Dear Hiring Team at {company},\n\n"
-            f"I'm writing about the {title} opening. {highlight}\n\n"
-            f"I'd welcome the chance to talk through how that experience applies here -- "
-            f"what's the biggest priority for whoever takes this on in the first few months?\n\n"
-            f"Best regards,\n{name}"
-        )
+    return (
+        f"Dear Hiring Team at {company},\n\n"
+        f"I'm writing about the {title} opening. {pitch_sentence}\n\n"
+        f"{open_question}\n\n"
+        f"Best regards,\n{name}"
+    )
 
 
 def generate_intro(job: dict, groups: list, profile: dict) -> str:
