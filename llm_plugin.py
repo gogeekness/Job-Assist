@@ -174,6 +174,16 @@ Rate this job for the candidate on a scale of 0–10. Consider:
 - Company type: research institutions, tech companies, cloud providers
 - Career growth and stability
 
+Be a discerning filter, not an encouraging cheerleader -- most real postings should land in the
+middle of the scale, not the top. Use these bands as calibration, not just a vague 0-10 feel:
+- 0-2: fundamentally mismatched (wrong field entirely, or a hard blocker like required fluent German
+  for a non-Germany EU role)
+- 3-4: weak fit -- only a couple of skills overlap, most of the role is unrelated to the candidate's background
+- 5-6: reasonable fit -- solid technical overlap but notable gaps or a role that's more senior/junior/
+  different in shape than the candidate's actual experience
+- 7-8: strong fit -- most core requirements are directly covered by real experience, location/language fine
+- 9-10: reserve for an exceptional, close-to-perfect match -- should be rare, not the default outcome
+
 Respond with ONLY valid JSON, no markdown fences:
 {{
   "score":         <float 0-10>,

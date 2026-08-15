@@ -55,6 +55,20 @@ DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position not in
 PAGE1_POSITION_COUNT = 3  # Peer + Excelgens + Herbst, per the reference split
 MAX_FIT_ITERATIONS = 6
 
+# The Atlantis HPC cluster's InfiniBand/PXE/IPMI detail bullet (E029, the
+# Atlantis/Green500 summary itself, is already this position's anchor and
+# so always appears regardless of job type) -- but this specific detail
+# bullet only competes for that position's 0-1 budget slot like any other,
+# so it isn't guaranteed to surface even for a genuinely HPC-relevant
+# posting. Pin it in whenever the job actually needs that signal.
+HPC_PINNED_BULLET = {"period": "2013–2014", "bullet_id": "E030"}
+HPC_SIGNAL_KEYWORDS = {"hpc", "cluster", "slurm", "infiniband", "ipmi", "pxe",
+                        "gpfs", "lustre", "beegfs", "mpi", "openmpi", "cuda", "rdma"}
+
+def _is_hpc_relevant_job(jtext: str) -> bool:
+    lower = (jtext or "").lower()
+    return any(kw in lower for kw in HPC_SIGNAL_KEYWORDS)
+
 SKILL_CATEGORIES = [
     ("Linux Administration", ["linux", "debian", "ubuntu", "rhel", "alma"]),
     ("Cloud Platforms", ["aws", "azure", "vmware", "openstack", "proxmox"]),
@@ -285,6 +299,15 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
                 if text:
                     detail_texts.append(text)
                     detail_texts_raw.append(raw)
+
+        if pos["period"] == HPC_PINNED_BULLET["period"] and _is_hpc_relevant_job(jtext):
+            pinned = bullets_by_id.get(HPC_PINNED_BULLET["bullet_id"])
+            if pinned:
+                raw = pick_variant_text(pinned, jtext)
+                text = latex_escape(raw)
+                if text and text not in detail_texts:
+                    detail_texts.insert(0, text)
+                    detail_texts_raw.insert(0, raw)
 
         groups.append({
             "employer": latex_escape(pos["employer"]),
