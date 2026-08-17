@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from string import Template
 
 import jinja2
 
@@ -28,6 +29,11 @@ BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"
 TEMPLATE_PATH = BASE / "tex_templates" / "cv_template.tex.jinja"
 PROFILE_PATH = BASE / "profile.local.json"
+PROMPTS_DIR = BASE / "active-settings" / "prompts"
+
+
+def _load_prompt(name: str) -> Template:
+    return Template((PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8"))
 PROFILE_EXAMPLE_PATH = BASE / "profile.example.json"
 OUTPUT_DIR = BASE / "generated"
 
@@ -199,27 +205,11 @@ def llm_recommend_bullets(job: dict, timeline: list):
             lines.append(f"  [{b['id']}] {cv_bank.bullet_text(b)}")
         blocks.append("\n".join(lines))
 
-    prompt = f"""You are selecting which real, factual bullet points to include in a tailored CV for this job.
-
-Job: {job.get('title')} at {job.get('company')}
-Description excerpt: {(job.get('description') or '')[:1500]}
-
-Candidate's full real career history and available bullets, most recent first. EVERY position below
-MUST appear in your output -- never omit a position entirely, even if you pick zero detail bullets
-for it (a bare one-line summary is fine for minor/short-tenure/old roles).
-
-{chr(10).join('---' + chr(10) + b for b in blocks)}
-
-General shape to aim for (guidance based on Richard's own real CVs, not a hard rule -- use judgment
-for THIS specific job): the 1-3 most recent/relevant roles typically get 3-5 detail bullets each;
-short-tenure or less relevant roles typically get 0-2. Page 1 should hold roughly the 3 most recent
-positions; the rest go on page 2. Never invent a bullet -- only use the exact [ID]s listed above.
-
-Respond with ONLY valid JSON, no markdown fences, exactly one entry per position above, in this shape:
-{{"positions": [
-  {{"period": "<period exactly as given above>", "summary_bullet_id": "<ID to use as the one-line summary>",
-    "detail_bullet_ids": ["<ID>", "..."]}}
-]}}"""
+    prompt = _load_prompt("recommend_bullets").safe_substitute(
+        title=job.get("title"), company=job.get("company"),
+        description=(job.get("description") or "")[:1500],
+        blocks="\n".join("---\n" + b for b in blocks),
+    )
 
     try:
         raw = _call_llm(prompt, max_tokens=1500)
@@ -405,18 +395,14 @@ def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
     pitch_sentence, open_question = fallback_highlight, _DEFAULT_OPEN_QUESTION
 
     if os.environ.get("LLM_BACKEND", "stub") != "stub":
-        prompt = f"""Fill in exactly two blanks for a cover letter. Output ONLY these two lines, nothing else:
-PITCH: <one confident, natural first-person sentence pitching the candidate for this job, using ONLY
-the real facts below -- paraphrase naturally, don't just copy a fact verbatim>
-QUESTION: <one open question specific to this job/company that invites a reply -- part of the pitch,
-not small talk>
-
-Real facts to draw from (factual only, never invent anything beyond this):
-{chr(10).join('- ' + g['summary_raw'] for g in top)}
-{chr(10).join('- ' + b for g in top for b in g['bullets_raw'][:2])}
-
-Job: {title} at {company}
-Job description excerpt: {(job.get('description') or '')[:800]}"""
+        achievements = "\n".join(
+            ["- " + g["summary_raw"] for g in top] +
+            ["- " + b for g in top for b in g["bullets_raw"][:2]]
+        )
+        prompt = _load_prompt("cover_letter").safe_substitute(
+            achievements=achievements, title=title, company=company,
+            description=(job.get("description") or "")[:800],
+        )
 
         try:
             raw = _call_llm(prompt, max_tokens=200)
@@ -453,17 +439,13 @@ def generate_intro(job: dict, groups: list, profile: dict) -> str:
             f"automated infrastructure relevant to this role."
         )
 
-    prompt = f"""Write a 2-sentence factual professional summary for a CV, tailored to this job posting.
-Use ONLY the facts below -- never invent skills, employers, or achievements not listed.
-
-Job title: {job.get('title')}
-Job company: {job.get('company')}
-
-Candidate's relevant experience (factual, from their real CV bullet bank):
-{chr(10).join('- ' + g['summary_raw'] for g in by_relevance[:3])}
-{chr(10).join('- ' + b for g in by_relevance[:3] for b in g['bullets_raw'][:2])}
-
-Respond with ONLY the 2-sentence summary text, no preamble, no quotes."""
+    highlights = "\n".join(
+        ["- " + g["summary_raw"] for g in by_relevance[:3]] +
+        ["- " + b for g in by_relevance[:3] for b in g["bullets_raw"][:2]]
+    )
+    prompt = _load_prompt("intro").safe_substitute(
+        title=job.get("title"), company=job.get("company"), highlights=highlights,
+    )
 
     try:
         return latex_escape(_call_llm(prompt, max_tokens=200))

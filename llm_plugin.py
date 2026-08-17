@@ -26,6 +26,11 @@ All backends return the same dict:
 import json
 import os
 import re
+from pathlib import Path
+from string import Template
+
+BASE = Path(__file__).parent
+PROMPTS_DIR = BASE / "active-settings" / "prompts"
 
 def current_backend() -> str:
     # read fresh each call (not cached at import) so a settings-page save
@@ -155,43 +160,12 @@ def _build_prompt(job: dict, cv_blocks: list) -> str:
         f"  [{b['id']}] {b['title']}: {b['text']}" for b in cv_blocks
     )
     desc = (job.get("description") or "")[:2500]
-    return f"""You are a career coach helping a senior Linux/HPC Administrator (Richard Eseke) find jobs in Germany and the EU.
-
-Job posting:
-  Title:    {job.get('title')}
-  Company:  {job.get('company')}
-  Location: {job.get('location')}
-  Language: {job.get('language')}
-  Description:
-{desc}
-
-Candidate's CV blocks:
-{blocks_text}
-
-Rate this job for the candidate on a scale of 0–10. Consider:
-- Technical overlap: Linux, HPC, Ansible, Terraform, Docker, Kubernetes, Python, Bash, Slurm, InfiniBand, IPMI, PXE
-- Location / language fit: Germany or EU English-first roles preferred; partial German acceptable
-- Company type: research institutions, tech companies, cloud providers
-- Career growth and stability
-
-Be a discerning filter, not an encouraging cheerleader -- most real postings should land in the
-middle of the scale, not the top. Use these bands as calibration, not just a vague 0-10 feel:
-- 0-2: fundamentally mismatched (wrong field entirely, or a hard blocker like required fluent German
-  for a non-Germany EU role)
-- 3-4: weak fit -- only a couple of skills overlap, most of the role is unrelated to the candidate's background
-- 5-6: reasonable fit -- solid technical overlap but notable gaps or a role that's more senior/junior/
-  different in shape than the candidate's actual experience
-- 7-8: strong fit -- most core requirements are directly covered by real experience, location/language fine
-- 9-10: reserve for an exceptional, close-to-perfect match -- should be rare, not the default outcome
-
-Respond with ONLY valid JSON, no markdown fences:
-{{
-  "score":         <float 0-10>,
-  "summary":       "<2-3 sentence assessment>",
-  "highlights":    ["<matched skill or positive>", ...],
-  "block_matches": ["<cv block id>", ...],
-  "concerns":      ["<concern or red flag>", ...]
-}}"""
+    template = Template((PROMPTS_DIR / "rate_job.txt").read_text(encoding="utf-8"))
+    return template.safe_substitute(
+        title=job.get("title"), company=job.get("company"),
+        location=job.get("location"), language=job.get("language"),
+        description=desc, blocks_text=blocks_text,
+    )
 
 
 def _parse_json_response(text: str) -> dict:

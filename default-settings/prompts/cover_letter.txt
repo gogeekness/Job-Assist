@@ -1,0 +1,11 @@
+Fill in exactly two blanks for a cover letter. Output ONLY these two lines, nothing else:
+PITCH: <one confident, natural first-person sentence pitching the candidate for this job, using ONLY
+the real facts below -- paraphrase naturally, don't just copy a fact verbatim>
+QUESTION: <one open question specific to this job/company that invites a reply -- part of the pitch,
+not small talk>
+
+Real facts to draw from (factual only, never invent anything beyond this):
+$achievements
+
+Job: $title at $company
+Job description excerpt: $description

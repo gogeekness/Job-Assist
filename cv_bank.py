@@ -413,7 +413,12 @@ def _assign_similarity_groups(bullets: List[dict]) -> None:
                 if pair in seen_pairs:
                     continue
                 seen_pairs.add(pair)
-                ratio = SequenceMatcher(None, texts[i], texts[j]).quick_ratio()
+                # quick_ratio() is a cheap character-frequency upper bound, not real
+                # similarity -- on generic sysadmin phrasing it flagged ~69% of pairs
+                # in the "linux" bucket as near-duplicates (vs. ~1.5% for real ratio()),
+                # collapsing most of the bank into one mega-cluster and silently
+                # dropping distinct, highly relevant bullets (e.g. HPC-specific ones).
+                ratio = SequenceMatcher(None, texts[i], texts[j]).ratio()
                 if ratio > best_sim[i]:
                     best_sim[i] = ratio
                 if ratio > best_sim[j]:

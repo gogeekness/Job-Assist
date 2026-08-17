@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}System Prompts — Job Assist{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0"><i class="bi bi-robot me-1"></i>System Prompts</h5>
+      <span class="text-muted small">The actual prompts this app sends to your LLM backend — edit and save, no restart needed.</span>
+    </div>
+    {% if saved %}
+    <div class="alert alert-success py-2 small">Saved. Changes take effect on the next generation/rating call.</div>
+    {% endif %}
+  </div>
+
+  <div class="col-12">
+    <form method="POST" action="/system_prompts">
+      {% for item in items %}
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">
+            {{ item.label }}
+            <span class="text-muted small fw-normal ms-2">{{ item.desc }}</span>
+          </span>
+          <span class="d-flex align-items-center gap-2">
+            {% if item.is_customized %}
+              <span class="badge bg-warning text-dark">Modified</span>
+            {% else %}
+              <span class="badge bg-secondary">Default</span>
+            {% endif %}
+            <button type="button" class="btn btn-outline-secondary btn-sm reset-prompt-btn"
+                    data-name="{{ item.name }}" {% if not item.is_customized %}disabled{% endif %}>
+              <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Default
+            </button>
+          </span>
+        </div>
+        <div class="card-body">
+          <textarea class="form-control font-monospace small" name="{{ item.name }}"
+                    rows="14" spellcheck="false">{{ item.text }}</textarea>
+          <div class="form-text">
+            Variables available: <code>{{ '$' }}{var}</code> style placeholders already in the text above — keep their names as-is, just edit the surrounding wording/instructions.
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-save me-1"></i>Save All
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.reset-prompt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const name = btn.dataset.name;
+    if (!confirm(`Reset "${name}" to its default text? This discards your edits.`)) return;
+    fetch('/system_prompts/reset/' + name, {method: 'POST'})
+      .then(() => location.reload())
+      .catch(e => alert('Error: ' + e));
+  });
+});
+</script>
+{% endblock %}

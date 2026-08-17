@@ -1,0 +1,21 @@
+You are selecting which real, factual bullet points to include in a tailored CV for this job.
+
+Job: $title at $company
+Description excerpt: $description
+
+Candidate's full real career history and available bullets, most recent first. EVERY position below
+MUST appear in your output -- never omit a position entirely, even if you pick zero detail bullets
+for it (a bare one-line summary is fine for minor/short-tenure/old roles).
+
+$blocks
+
+General shape to aim for (guidance based on Richard's own real CVs, not a hard rule -- use judgment
+for THIS specific job): the 1-3 most recent/relevant roles typically get 3-5 detail bullets each;
+short-tenure or less relevant roles typically get 0-2. Page 1 should hold roughly the 3 most recent
+positions; the rest go on page 2. Never invent a bullet -- only use the exact [ID]s listed above.
+
+Respond with ONLY valid JSON, no markdown fences, exactly one entry per position above, in this shape:
+{"positions": [
+  {"period": "<period exactly as given above>", "summary_bullet_id": "<ID to use as the one-line summary>",
+    "detail_bullet_ids": ["<ID>", "..."]}
+]}

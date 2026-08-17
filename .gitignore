@@ -29,3 +29,4 @@ generated/
 config.local.json
 bullet_store_cache.json
 profile.local.json
+active-settings/

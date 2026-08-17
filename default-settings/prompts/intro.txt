@@ -1,0 +1,10 @@
+Write a 2-sentence factual professional summary for a CV, tailored to this job posting.
+Use ONLY the facts below -- never invent skills, employers, or achievements not listed.
+
+Job title: $title
+Job company: $company
+
+Candidate's relevant experience (factual, from their real CV bullet bank):
+$highlights
+
+Respond with ONLY the 2-sentence summary text, no preamble, no quotes.
