@@ -20,6 +20,7 @@ bool
 # trailing-slash pattern only matches real directories, not symlinks
 # to directories -- would silently NOT exclude them otherwise)
 richard_cv_master_bullet_bank_g_update.csv
+richard_cv_master_bullet_bank_g_update.csv.bak-*
 LateX_Docs
 CVs_Job_Dos
 generated/
@@ -30,3 +31,4 @@ config.local.json
 bullet_store_cache.json
 profile.local.json
 active-settings/
+backups/
