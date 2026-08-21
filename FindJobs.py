@@ -22,6 +22,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,7 +32,7 @@ import feedparser
 import requests
 from dotenv import load_dotenv, set_key
 from flask import (Flask, Response, jsonify, redirect,
-                   render_template, request, url_for)
+                   render_template, request, send_file, url_for)
 
 BASE         = Path(__file__).parent
 DB_PATH      = BASE / "jobs.db"
@@ -1430,6 +1431,168 @@ def rebuild_bullets():
     importlib.reload(cv_bank)  # re-read config.local.json path overrides
     cv_bank.build_bullet_store(force_rebuild=True)
     return redirect(url_for("settings"))
+
+# ── bullet bank editor ───────────────────────────────────────────────────────
+# Operates directly on the raw CSV grid (not the parsed bullet-store shape)
+# so every literal column is editable, including quirks like the file's
+# duplicate "German Variant 2 (DE)" header -- nothing gets silently
+# reinterpreted or dropped.
+
+def _bullet_csv_path():
+    import cv_bank
+    return cv_bank.CSV_PATH
+
+def _read_bullet_csv_raw():
+    path = _bullet_csv_path()
+    if not path.exists():
+        return [], [], []
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    banner = rows[0] if len(rows) > 0 else []
+    header = rows[1] if len(rows) > 1 else []
+    data = [r for r in rows[2:] if any(r)]
+    return banner, header, data
+
+def _write_bullet_csv_raw(banner, header, data_rows):
+    path = _bullet_csv_path()
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows([banner, header] + data_rows)
+
+def _backup_bullet_csv():
+    path = _bullet_csv_path()
+    if not path.exists():
+        return
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = path.with_suffix(path.suffix + f".bak-{stamp}")
+    backup_path.write_bytes(path.read_bytes())
+
+def _rebuild_bullet_cache():
+    import importlib
+    import cv_bank
+    importlib.reload(cv_bank)
+    cv_bank.build_bullet_store(force_rebuild=True)
+
+@app.route("/bullet_editor")
+def bullet_editor():
+    banner, header, data = _read_bullet_csv_raw()
+    id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
+
+    # disambiguate any duplicate header labels (e.g. two "German Variant 2 (DE)"
+    # columns) for display only -- the underlying column position is unchanged
+    seen = {}
+    labels = []
+    for h in header:
+        seen[h] = seen.get(h, 0) + 1
+        labels.append(h if seen[h] == 1 else f"{h} (#{seen[h]})")
+
+    anchor_col = next((i for i, h in enumerate(header) if "anchor" in h.lower()), None)
+
+    # Left column: keywords/categorization fields. Right column: identity
+    # (ID/employer/title/period) plus the actual bullet text fields.
+    left_labels = {"category", "core skill tags", "source cv family", "verb risk",
+                   "jd keyword notes", "imp."}
+    left_cols = [i for i, h in enumerate(header) if h.strip().lower() in left_labels or i == anchor_col]
+    right_cols = [i for i in range(len(header)) if i not in left_cols]
+
+    rows = []
+    for row in data:
+        row = (row + [""] * len(header))[:len(header)]
+        rid = row[id_col] if id_col < len(row) else ""
+        if not rid:
+            continue  # stray non-bullet row (e.g. a multi-line-quoted-field artifact) -- no ID, nothing to edit
+        rows.append({"id": rid, "cells": row})
+
+    return render_template("bullet_editor.html", header=header, labels=labels,
+                            rows=rows, id_col=id_col, anchor_col=anchor_col,
+                            left_cols=left_cols, right_cols=right_cols,
+                            saved=request.args.get("saved"), error=request.args.get("error"))
+
+@app.route("/bullet_editor/save", methods=["POST"])
+def bullet_editor_save():
+    banner, header, data = _read_bullet_csv_raw()
+    id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
+
+    by_id = {}
+    for row in data:
+        row = (row + [""] * len(header))[:len(header)]
+        rid = row[id_col] if id_col < len(row) else ""
+        if rid:
+            by_id[rid] = row
+
+    for rid in list(by_id.keys()):
+        for col in range(len(header)):
+            field = request.form.get(f"cell_{rid}_{col}")
+            if field is not None:
+                by_id[rid][col] = field
+
+    new_rows = list(by_id.values())
+    new_ids = [r[id_col] for r in new_rows if id_col < len(r) and r[id_col].strip()]
+    dupes = sorted({i for i in new_ids if new_ids.count(i) > 1})
+    if dupes:
+        return redirect(url_for("bullet_editor",
+                                 error=f"Not saved -- duplicate ID(s): {', '.join(dupes)}. Every bullet needs a unique ID."))
+
+    _backup_bullet_csv()
+    _write_bullet_csv_raw(banner, header, new_rows)
+    _rebuild_bullet_cache()
+    return redirect(url_for("bullet_editor", saved=1))
+
+@app.route("/bullet_editor/add", methods=["POST"])
+def bullet_editor_add():
+    banner, header, data = _read_bullet_csv_raw()
+    id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
+    new_row = [""] * len(header)
+    # Placeholder only -- the real Company-Group-Unique ID depends on which
+    # employer/group this bullet belongs to, which the user fills in below.
+    new_row[id_col] = f"NEW-{uuid.uuid4().hex[:6]}"
+
+    _backup_bullet_csv()
+    _write_bullet_csv_raw(banner, header, data + [new_row])
+    _rebuild_bullet_cache()
+    return redirect(url_for("bullet_editor", saved=1))
+
+@app.route("/bullet_editor/delete/<bullet_id>", methods=["POST"])
+def bullet_editor_delete(bullet_id):
+    banner, header, data = _read_bullet_csv_raw()
+    id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
+    kept = [r for r in data if not (id_col < len(r) and r[id_col] == bullet_id)]
+
+    _backup_bullet_csv()
+    _write_bullet_csv_raw(banner, header, kept)
+    _rebuild_bullet_cache()
+    return redirect(url_for("bullet_editor", saved=1))
+
+@app.route("/bullet_editor/export")
+def bullet_editor_export():
+    path = _bullet_csv_path()
+    if not path.exists():
+        return "No bullet bank CSV found", 404
+    return send_file(path, as_attachment=True, download_name=path.name, mimetype="text/csv")
+
+@app.route("/bullet_editor/import", methods=["POST"])
+def bullet_editor_import():
+    upload = request.files.get("csv_file")
+    if not upload or not upload.filename:
+        return redirect(url_for("bullet_editor", error="No file selected"))
+
+    try:
+        text = upload.read().decode("utf-8")
+        rows = list(csv.reader(io.StringIO(text)))
+    except (UnicodeDecodeError, csv.Error) as e:
+        return redirect(url_for("bullet_editor", error=f"Could not parse file: {e}"))
+
+    if len(rows) < 3:
+        return redirect(url_for("bullet_editor", error="File doesn't look like the bullet bank (too few rows)"))
+    header = rows[1]
+    required = ["employer", "id", "job title", "period", "base bullet"]
+    missing = [r for r in required if not any(r in h.lower() for h in header)]
+    if missing:
+        return redirect(url_for("bullet_editor", error=f"Missing expected column(s): {', '.join(missing)}"))
+
+    _backup_bullet_csv()
+    _bullet_csv_path().write_text(text, encoding="utf-8")
+    _rebuild_bullet_cache()
+    return redirect(url_for("bullet_editor", saved=1))
 
 @app.route("/settings/llm", methods=["POST"])
 def save_llm_config():

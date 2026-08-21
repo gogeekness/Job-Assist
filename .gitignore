@@ -21,6 +21,7 @@ bool
 # to directories -- would silently NOT exclude them otherwise)
 richard_cv_master_bullet_bank_g_update.csv
 richard_cv_master_bullet_bank_g_update.csv.bak-*
+bullet-proof-out.md
 LateX_Docs
 CVs_Job_Dos
 generated/

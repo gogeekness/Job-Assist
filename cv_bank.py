@@ -128,6 +128,20 @@ def _wording_score(text: str, verb_risk: str) -> float:
 
 # ── CSV source (primary) ────────────────────────────────────────────────
 
+_ID_PATTERN = re.compile(r"^([A-Za-z0-9]+)-(\d{3})-(\d{3})$")
+
+def _id_group_key(bullet_id: str) -> Optional[str]:
+    """For IDs in the Company-Group-Unique scheme (e.g. PeSU-005-002),
+    returns the "Company-Group" portion -- bullets sharing this key are
+    manually-declared variations of the same achievement, at most one of
+    which should ever appear together in a generated CV. Group "000" is
+    reserved for a position's single summation/duties-overview bullet.
+    Returns None for IDs outside this scheme (e.g. auto-extracted
+    odt:/tex: bullets), which fall back to fuzzy text-similarity grouping."""
+    m = _ID_PATTERN.match(bullet_id or "")
+    return f"{m.group(1)}-{m.group(2)}" if m else None
+
+
 def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
     if not csv_path.exists():
         return []
@@ -193,6 +207,8 @@ def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
             "impact_outcome": _normalize(col(row, "Impact / Outcome")),
             "verb_risk": _normalize(col(row, "Verb Risk")),
             "jd_keyword_notes": _normalize(col(row, "JD Keyword Notes")),
+            "id_group": _id_group_key(rid),
+            "is_summation": _id_group_key(rid) is not None and rid.split("-")[1] == "000",
             "variants": en_variants + de_variants,
             "source_tag": f"csv:{rid}",
             "cv_timestamp_age_days": cv_age_days,
@@ -388,6 +404,21 @@ def _assign_similarity_groups(bullets: List[dict]) -> None:
         ra, rb = find(a), find(b)
         if ra != rb:
             parent[ra] = rb
+
+    # IDs in the Company-Group-Unique scheme (e.g. PeSU-005-001/-002) are a
+    # more reliable dedup signal than fuzzy text similarity -- union
+    # everything sharing a "Company-Group" key first, so the auto-clustering
+    # below can only ever add to this, never override a deliberate manual
+    # grouping. Summation bullets (group "000") are never merged with
+    # anything -- each position has at most one, so there's nothing to dedupe.
+    manual_groups: Dict[str, List[int]] = {}
+    for i, b in enumerate(bullets):
+        key = b.get("id_group")
+        if key and not b.get("is_summation"):
+            manual_groups.setdefault(key, []).append(i)
+    for members in manual_groups.values():
+        for idx in members[1:]:
+            union(members[0], idx)
 
     texts = [bullet_text(b).lower() for b in bullets]
     best_sim = [0.0] * n
@@ -595,9 +626,10 @@ def build_position_timeline(bullets: Optional[List[dict]] = None) -> List[dict]:
     independent of any single job's relevance ranking. A CV generator
     should show every position here (even minor ones get their one-line
     summary), not just whichever employers happen to score well against a
-    given posting. Each entry carries a summary line (its anchor bullet,
-    or highest-importance bullet as a fallback) plus all of that
-    position's CSV bullets, for the generator to rank as detail points."""
+    given posting. Each entry carries a summary line (its dedicated "-000-"
+    summation bullet if one exists, else its anchor bullet, else the
+    highest-importance bullet as a fallback) plus all of that position's
+    other CSV bullets, for the generator to rank as detail points."""
     if bullets is None:
         bullets = build_bullet_store()
     csv_bullets = [b for b in bullets if b["source_tag"].startswith("csv:")]
@@ -620,12 +652,22 @@ def build_position_timeline(bullets: Optional[List[dict]] = None) -> List[dict]:
     timeline = []
     for key in order:
         g = groups[key]
+        summation_bullets = [b for b in g["bullets"] if b.get("is_summation")]
         anchor_bullets = [b for b in g["bullets"] if b.get("anchor")]
-        summary_source = anchor_bullets[0] if anchor_bullets else max(
-            g["bullets"], key=lambda b: b.get("importance", 0)
+        summary_source = summation_bullets[0] if summation_bullets else (
+            anchor_bullets[0] if anchor_bullets else
+            max(g["bullets"], key=lambda b: b.get("importance", 0))
         )
         g["summary_text"] = bullet_text(summary_source)
         g["summary_bullet_id"] = summary_source["id"]
+        # the summation bullet is the dedicated summary, not a detail-bullet
+        # candidate -- keep it out of the pool offered for the position's body.
+        # Job-agnostic here (no job text at this stage), so preference order
+        # is anchor first, then importance -- the loser of each id_group never
+        # reaches generate_cv.py at all, for any job.
+        detail_pool = [b for b in g["bullets"] if not b.get("is_summation")]
+        detail_pool.sort(key=lambda b: (-b.get("anchor", False), -b.get("importance", 0)))
+        g["bullets"] = dedupe_by_similarity_group(detail_pool)
         timeline.append(g)
 
     timeline.sort(key=lambda g: g["position_age_years"] if g["position_age_years"] is not None else 999)

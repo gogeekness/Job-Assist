@@ -67,7 +67,7 @@ MAX_FIT_ITERATIONS = 6
 # bullet only competes for that position's 0-1 budget slot like any other,
 # so it isn't guaranteed to surface even for a genuinely HPC-relevant
 # posting. Pin it in whenever the job actually needs that signal.
-HPC_PINNED_BULLET = {"period": "2013–2014", "bullet_id": "E030"}
+HPC_PINNED_BULLET = {"period": "2013–2014", "bullet_id": "Abel-002-001"}
 HPC_SIGNAL_KEYWORDS = {"hpc", "cluster", "slurm", "infiniband", "ipmi", "pxe",
                         "gpfs", "lustre", "beegfs", "mpi", "openmpi", "cuda", "rdma"}
 

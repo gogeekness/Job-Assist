@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Bullet Bank Editor — Job Assist{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0"><i class="bi bi-list-check me-1"></i>Bullet Bank Editor</h5>
+      <span class="text-muted small">Every column of the curated CSV, editable directly — no spreadsheet app needed.</span>
+    </div>
+    {% if saved %}
+    <div class="alert alert-success py-2 small">Saved. A backup of the previous file was kept alongside it.</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger py-2 small">{{ error }}</div>
+    {% endif %}
+
+    <div class="d-flex gap-2 mb-3">
+      <form method="POST" action="/bullet_editor/add">
+        <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add Bullet</button>
+      </form>
+      <a href="/bullet_editor/export" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
+      <form method="POST" action="/bullet_editor/import" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+        <input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" style="width:auto">
+        <button type="submit" class="btn btn-outline-warning btn-sm"
+                onclick="return confirm('Import will replace the entire bullet bank (a backup of the current file is kept). Continue?')">
+          <i class="bi bi-upload me-1"></i>Import CSV
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <form method="POST" action="/bullet_editor/save">
+      <div id="bullet-scroll" class="border rounded p-2" style="max-height: 80vh; overflow-y: auto;">
+      {% for row in rows %}
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">
+            <span class="text-muted">#{{ loop.index }}/{{ rows|length }}</span>
+            {{ row.cells[0] or '(no employer)' }} — {{ row.cells[2] if row.cells|length > 2 else '' }}
+            <span class="badge bg-secondary ms-2">{{ row.id }}</span>
+          </span>
+          <button type="submit" formaction="{{ url_for('bullet_editor_delete', bullet_id=row.id) }}"
+                  formnovalidate class="btn btn-outline-danger btn-sm"
+                  onclick="return confirm('Delete bullet {{ row.id }}? This cannot be undone (a backup is kept).')">
+            <i class="bi bi-trash me-1"></i>Delete
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <!-- Left third: keywords / categorization -->
+            <div class="col-12 col-lg-4 border-end-lg">
+              <div class="row g-2">
+                {% for col in left_cols %}
+                <div class="{% if col == anchor_col %}col-auto{% else %}col-12{% endif %}">
+                  <label class="form-label small text-muted mb-0">{{ labels[col] }}</label>
+                  {% if col == anchor_col %}
+                  <div class="form-check mt-1">
+                    <input type="hidden" name="cell_{{ row.id }}_{{ col }}" value="">
+                    <input type="checkbox" class="form-check-input anchor-check" data-target="cell_{{ row.id }}_{{ col }}"
+                           {% if row.cells[col] == '★' %}checked{% endif %}>
+                  </div>
+                  {% else %}
+                  <input type="text" class="form-control form-control-sm" name="cell_{{ row.id }}_{{ col }}"
+                         value="{{ row.cells[col] }}">
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <!-- Right two-thirds: ID/identity + bullet text -->
+            <div class="col-12 col-lg-8">
+              <div class="row g-2">
+                {% for col in right_cols %}
+                <div class="{% if header[col]|lower in ['employer','id','job title','period'] %}col-12 col-md-6{% else %}col-12{% endif %}">
+                  <label class="form-label small text-muted mb-0">{{ labels[col] }}</label>
+                  {% if col == id_col %}
+                  <input type="text" class="form-control form-control-sm" name="cell_{{ row.id }}_{{ col }}"
+                         value="{{ row.cells[col] }}">
+                  <div class="form-text">Company-Group-Unique, e.g. PeSU-001-001. Group 000 = position summation.</div>
+                  {% elif header[col]|lower in ['employer','job title','period'] %}
+                  <input type="text" class="form-control form-control-sm" name="cell_{{ row.id }}_{{ col }}"
+                         value="{{ row.cells[col] }}">
+                  {% else %}
+                  <textarea class="form-control form-control-sm" name="cell_{{ row.id }}_{{ col }}" rows="2">{{ row.cells[col] }}</textarea>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <p class="text-muted">No bullets found — click "Add Bullet" to create the first one.</p>
+      {% endfor %}
+      </div>
+      {% if rows %}
+      <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save All</button>
+      {% endif %}
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Anchor checkbox writes the literal star character its column expects,
+// via a same-named hidden field the checkbox shadows (unchecked boxes
+// don't submit at all, so the hidden field guarantees an empty value lands).
+document.querySelectorAll('.anchor-check').forEach(cb => {
+  const hidden = document.querySelector(`input[type=hidden][name="${cb.dataset.target}"]`);
+  function sync() {
+    cb.name = cb.checked ? cb.dataset.target : '';
+    hidden.disabled = cb.checked;
+    hidden.value = '';
+  }
+  cb.value = '★';
+  cb.addEventListener('change', sync);
+  sync();
+});
+</script>
+{% endblock %}
