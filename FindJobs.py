@@ -105,6 +105,12 @@ CREATE TABLE IF NOT EXISTS harvest_log (
     count       INTEGER DEFAULT 0,
     error       TEXT
 );
+CREATE TABLE IF NOT EXISTS search_presets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL UNIQUE,
+    query_string TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
 """
 
 # Columns added after initial schema — safe to apply on upgrade
@@ -1018,6 +1024,7 @@ def jobs():
             LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
+    presets = conn.execute("SELECT id, name, query_string FROM search_presets ORDER BY name").fetchall()
     conn.close()
 
     return render_template("jobs.html",
@@ -1025,7 +1032,32 @@ def jobs():
         total=total, limit=limit, offset=offset,
         args=dict(request.args),
         llm_backend=os.environ.get("LLM_BACKEND", "stub"),
+        presets=[dict(r) for r in presets],
     )
+
+@app.route("/jobs/presets", methods=["POST"])
+def save_search_preset():
+    name = (request.form.get("name") or "").strip()
+    query_string = request.form.get("query_string") or ""
+    if not name:
+        return redirect(url_for("jobs", **dict(request.args)))
+    conn = connect_db()
+    conn.execute(
+        "INSERT INTO search_presets(name, query_string, created_at) VALUES(?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET query_string=excluded.query_string, created_at=excluded.created_at",
+        (name, query_string, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(f"/jobs?{query_string}")
+
+@app.route("/jobs/presets/delete/<int:preset_id>", methods=["POST"])
+def delete_search_preset(preset_id):
+    conn = connect_db()
+    conn.execute("DELETE FROM search_presets WHERE id=?", (preset_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("jobs"))
 
 @app.route("/jobs/<int:job_id>")
 def job_detail(job_id):
