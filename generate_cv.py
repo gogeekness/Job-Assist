@@ -155,13 +155,25 @@ def pick_variant_text(bullet: dict, jtext: str) -> str:
         label_priority = ["Linux Admin", "DevOps", "Ops / SRE", "Base"]
 
     en_variants = {v["label"]: v["text"] for v in bullet["variants"] if v["lang"] == "en"}
+    base_text = en_variants.get("Base")
+
+    chosen = None
     for label in label_priority:
         if label in en_variants:
-            return en_variants[label]
-    if en_variants:
-        return next(iter(en_variants.values()))
-    de_variants = [v["text"] for v in bullet["variants"] if v["lang"] == "de"]
-    return de_variants[0] if de_variants else ""
+            chosen = en_variants[label]
+            break
+    if chosen is None and en_variants:
+        chosen = next(iter(en_variants.values()))
+    if chosen is None:
+        de_variants = [v["text"] for v in bullet["variants"] if v["lang"] == "de"]
+        return de_variants[0] if de_variants else ""
+
+    # No real alternative -- if the picked phrasing-variant is the same
+    # content as Base (never differentiated, or simply the same text),
+    # prefer showing Base rather than a redundant differently-labeled copy.
+    if base_text and chosen.strip().lower() == base_text.strip().lower():
+        return base_text
+    return chosen
 
 
 def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
@@ -313,6 +325,14 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
     return groups
 
 
+def _skill_redundant_with_label(skill: str, label: str) -> bool:
+    """True if the skill name is just the sidebar category heading
+    restated, e.g. "linux" under "Linux Administration" -- redundant on
+    the printed CV, so it gets dropped from that category's item list."""
+    label_words = re.findall(r"[a-z0-9/]+", label.lower())
+    return skill.lower() in label_words
+
+
 def build_skill_categories(bullets: list) -> list:
     matched_tags = set()
     for b in bullets:
@@ -321,9 +341,10 @@ def build_skill_categories(bullets: list) -> list:
     categories = []
     used = set()
     for label, keywords in SKILL_CATEGORIES:
-        items = [kw for kw in keywords if kw in matched_tags]
+        matched = [kw for kw in keywords if kw in matched_tags]
+        used.update(matched)  # accounted for even if dropped below as redundant -- must not leak into "Other"
+        items = [kw for kw in matched if not _skill_redundant_with_label(kw, label)]
         if items:
-            used.update(items)
             categories.append({"label": latex_escape(label), "skills": [latex_escape(i) for i in items]})
     # only show leftover tags that are real recognized tech keywords --
     # the CSV's "Core Skill Tags" column also carries internal
