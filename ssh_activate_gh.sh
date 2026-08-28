@@ -17,5 +17,6 @@ if [[ $ssh_agent -gt 0 ]]; then
 fi
 echo "Adding keys to agent $PDD"
 
-ssh-add ~/.ssh/ed_lustre
-ssh-add ~/.ssh/gh_tf
+#ssh-add ~/.ssh/ed_lustre
+#ssh-add ~/.ssh/gh_tf
+ssh-add ~/.ssh/gh_Job_Assist
