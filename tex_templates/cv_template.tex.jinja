@@ -78,6 +78,10 @@
     \begin{minipage}[t][\dimexpr\textheight-24pt\relax][t]{\sidebartextwidth}
       \small
       \color{sidebartext}
+      % Narrow column -- disable hyphenation so a long word (company name,
+      % degree text, etc.) wraps whole onto the next line instead of
+      % splitting mid-word (e.g. "Mex-ico"), which reads like a typo.
+      \hyphenpenalty=10000\exhyphenpenalty=10000
       #1
     \end{minipage}%
   }%
