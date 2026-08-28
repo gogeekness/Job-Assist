@@ -77,7 +77,7 @@ KEYWORDS_WEIGHTED = {
     "fiber channel": 5, "fibre channel": 5,
 }
 
-VARIANT_LABELS = ["Linux Admin", "DevOps", "Ops / SRE", "STAR"]
+VARIANT_LABELS = ["Linux Admin", "DevOps", "Ops / SRE"]
 
 
 # ── shared helpers ───────────────────────────────────────────────────────
@@ -204,7 +204,6 @@ def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
             "anchor": col(row, "Anchor").strip() == "★",
             "skill_tags": skills,
             "source_cv_family": family,
-            "impact_outcome": _normalize(col(row, "Impact / Outcome")),
             "verb_risk": _normalize(col(row, "Verb Risk")),
             "jd_keyword_notes": _normalize(col(row, "JD Keyword Notes")),
             "id_group": _id_group_key(rid),
@@ -267,7 +266,6 @@ def load_tex_bullets(tex_dir: Path = TEX_DIR) -> List[dict]:
                 "anchor": False,
                 "skill_tags": _extract_skill_tags(text),
                 "source_cv_family": [path.stem],
-                "impact_outcome": "",
                 "verb_risk": "",
                 "jd_keyword_notes": "",
                 "variants": [{"label": "Source", "text": text, "lang": lang}],
@@ -336,7 +334,6 @@ def load_odt_bullets(odt_dir: Path = ODT_DIR) -> List[dict]:
                 "anchor": False,
                 "skill_tags": _extract_skill_tags(text),
                 "source_cv_family": [path.stem],
-                "impact_outcome": "",
                 "verb_risk": "",
                 "jd_keyword_notes": "",
                 "variants": [{"label": "Source", "text": text, "lang": lang}],
