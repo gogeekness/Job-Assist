@@ -119,6 +119,19 @@ def latex_escape_url(url: str) -> str:
     return url.replace("%", r"\%").replace("#", r"\#")
 
 
+# ":" in a profile text field (school, degree, ...) is a manual line-break
+# marker for the narrow sidebar column -- e.g. "Bachelor's Degree: Computer
+# Science" prints as two lines, colon dropped. Applied AFTER latex_escape()
+# so this inserts a real LaTeX line break (\\), not raw data -- a literal
+# "\\" typed into the source JSON would just get escaped back into visible
+# \textbackslash{} text like everything else.
+def _colon_break(escaped_text: str) -> str:
+    if ":" not in escaped_text:
+        return escaped_text
+    before, after = escaped_text.split(":", 1)
+    return f"{before.strip()} \\\\ {after.strip()}"
+
+
 def load_profile() -> dict:
     if not PROFILE_PATH.exists():
         raise RuntimeError(
@@ -510,7 +523,8 @@ def render_tex(job: dict, profile: dict, groups: list,
         nationality=latex_escape(profile.get("nationality", "")),
         links=[{"label": latex_escape(l["label"]), "url": latex_escape_url(l["url"])} for l in profile.get("links", [])],
         photo_path=photo_path,
-        education=[{"school": latex_escape(e["school"]), "degree": latex_escape(e["degree"]), "year": latex_escape(e["year"])}
+        education=[{"school": _colon_break(latex_escape(e["school"])),
+                    "degree": _colon_break(latex_escape(e["degree"])), "year": latex_escape(e["year"])}
                    for e in profile.get("education", [])],
         certificates=[{"name": latex_escape(c["name"]), "id": latex_escape(c["id"]), "date": latex_escape(c["date"])}
                       for c in profile.get("certificates", [])],
