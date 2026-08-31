@@ -15,15 +15,30 @@
     <div class="alert alert-danger py-2 small">{{ error }}</div>
     {% endif %}
 
+    <!-- Each language is its own independent CSV -- not merged, same code
+         path runs once per file. Switching just changes which file this
+         page reads/writes. -->
+    <ul class="nav nav-pills mb-3">
+      {% for l in langs %}
+      <li class="nav-item">
+        <a class="nav-link {% if l == lang %}active{% endif %}" href="/bullet_editor?lang={{ l }}">
+          {{ {'en': 'English', 'de': 'German'}.get(l, l) }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+
     <div class="d-flex gap-2 mb-3">
       <form method="POST" action="/bullet_editor/add">
+        <input type="hidden" name="lang" value="{{ lang }}">
         <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add Bullet</button>
       </form>
-      <a href="/bullet_editor/export" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
+      <a href="/bullet_editor/export?lang={{ lang }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
       <form method="POST" action="/bullet_editor/import" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+        <input type="hidden" name="lang" value="{{ lang }}">
         <input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" style="width:auto">
         <button type="submit" class="btn btn-outline-warning btn-sm"
-                onclick="return confirm('Import will replace the entire bullet bank (a backup of the current file is kept). Continue?')">
+                onclick="return confirm('Import will replace the current language\'s bullet bank (a backup of the current file is kept). Continue?')">
           <i class="bi bi-upload me-1"></i>Import CSV
         </button>
       </form>
@@ -32,6 +47,7 @@
 
   <div class="col-12">
     <form method="POST" action="/bullet_editor/save">
+      <input type="hidden" name="lang" value="{{ lang }}">
       <div id="bullet-scroll" class="border rounded p-2" style="max-height: 80vh; overflow-y: auto;">
       {% for row in rows %}
       <div class="card mb-3">

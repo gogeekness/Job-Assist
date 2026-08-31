@@ -28,11 +28,18 @@
     <div class="card h-100">
       <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
         <span><i class="bi bi-file-earmark-pdf me-1"></i>PDF Preview</span>
-        {% if job.cv_pdf_path %}
-        <a href="/generated/{{ job.id }}/cv.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
-          <i class="bi bi-download me-1"></i>Open / Download
-        </a>
-        {% endif %}
+        <span class="d-flex gap-2">
+          {% if job.cv_tex_path %}
+          <a href="/generated/{{ job.id }}/cv.tex" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-code me-1"></i>Download .tex
+          </a>
+          {% endif %}
+          {% if job.cv_pdf_path %}
+          <a href="/generated/{{ job.id }}/cv.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-download me-1"></i>Open / Download PDF
+          </a>
+          {% endif %}
+        </span>
       </div>
       <div class="card-body p-0">
         {% if job.cv_pdf_path %}

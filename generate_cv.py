@@ -59,7 +59,11 @@ POSITION_BULLET_TARGETS = {
 }
 DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position not in the table above
 PAGE1_POSITION_COUNT = 3  # Peer + Excelgens + Herbst, per the reference split
-MAX_FIT_ITERATIONS = 6
+WEAK_DROP_CAP = 6  # single-bullet drops tried before falling back to blunter levers
+MAX_FIT_ITERATIONS = 16  # WEAK_DROP_CAP(6) + trim_level(0-5, 6) + drop_droppable(1) + page1_count(~2) + headroom
+JOBGAP_MIN = 10   # pt, starting/fallback inter-entry spacing (was the old fixed \jobgap)
+JOBGAP_MAX = 20   # pt, upper bound when stretching spacing to fill a page with room to spare
+JOBGAP_STEP = 2    # pt, per refinement step
 
 # The Atlantis HPC cluster's InfiniBand/PXE/IPMI detail bullet (E029, the
 # Atlantis/Green500 summary itself, is already this position's anchor and
@@ -247,7 +251,7 @@ def llm_recommend_bullets(job: dict, timeline: list):
 
 
 def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False,
-                           llm_recommendation: dict = None):
+                           llm_recommendation: dict = None, excluded_ids: set = None):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
     happen to score well against this job. Each position always shows its
@@ -281,21 +285,23 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
         rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
         bullets_by_id = {b["id"]: b for b in pos["bullets"]}
         rec = llm_recommendation.get(pos["period"]) if llm_recommendation else None
+        excluded = excluded_ids or set()
 
         if rec is not None:
             summary_bullet = bullets_by_id.get(rec.get("summary_bullet_id")) or \
                 bullets_by_id.get(pos["summary_bullet_id"])
             summary_text = cv_bank.bullet_text(summary_bullet) if summary_bullet else pos["summary_text"]
-            detail_texts, detail_texts_raw = [], []
+            detail_texts, detail_texts_raw, detail_ids = [], [], []
             for bid in rec.get("detail_bullet_ids", []):
                 b = bullets_by_id.get(bid)  # never invent -- skip any ID the LLM hallucinated
-                if not b or b is summary_bullet:
+                if not b or b is summary_bullet or bid in excluded:
                     continue
                 raw = pick_variant_text(b, jtext)
                 text = latex_escape(raw)
                 if text:
                     detail_texts.append(text)
                     detail_texts_raw.append(raw)
+                    detail_ids.append((bid, cv_bank.score_bullets(jtext, [b])[0]["match_score"] if b else 0))
         else:
             target = POSITION_BULLET_TARGETS.get(pos["period"], DEFAULT_BULLET_TARGET)
             if drop_droppable and target.get("droppable"):
@@ -303,9 +309,9 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
             budget = max(target["min"], target["max"] - trim_level)
             summary_text = pos["summary_text"]
             ranked_bullets = _rank_bullets_with_fallback(pos["bullets"], jtext)
-            detail_texts, detail_texts_raw = [], []
+            detail_texts, detail_texts_raw, detail_ids = [], [], []
             for b in ranked_bullets:
-                if b["id"] == pos["summary_bullet_id"]:
+                if b["id"] == pos["summary_bullet_id"] or b["id"] in excluded:
                     continue
                 if len(detail_texts) >= budget:
                     break
@@ -314,15 +320,17 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
                 if text:
                     detail_texts.append(text)
                     detail_texts_raw.append(raw)
+                    detail_ids.append((b["id"], b.get("match_score", 0)))
 
         if pos["period"] == HPC_PINNED_BULLET["period"] and _is_hpc_relevant_job(jtext):
             pinned = bullets_by_id.get(HPC_PINNED_BULLET["bullet_id"])
-            if pinned:
+            if pinned and HPC_PINNED_BULLET["bullet_id"] not in excluded:
                 raw = pick_variant_text(pinned, jtext)
                 text = latex_escape(raw)
                 if text and text not in detail_texts:
                     detail_texts.insert(0, text)
                     detail_texts_raw.insert(0, raw)
+                    detail_ids.insert(0, (HPC_PINNED_BULLET["bullet_id"], 999))  # never the "weakest" pick
 
         groups.append({
             "employer": latex_escape(pos["employer"]),
@@ -333,6 +341,7 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
             "summary_raw": summary_text,
             "bullets": detail_texts,
             "bullets_raw": detail_texts_raw,
+            "detail_bullet_scores": detail_ids,  # [(bullet_id, match_score), ...] -- for the fit-retry loop's weakest-bullet drop
             "relevance_rank": rank,
         })
     return groups
@@ -493,7 +502,9 @@ def generate_intro(job: dict, groups: list, profile: dict) -> str:
 
 def render_tex(job: dict, profile: dict, groups: list,
                skill_categories: list, intro: str,
-               page1_count: int = PAGE1_POSITION_COUNT) -> str:
+               page1_count: int = PAGE1_POSITION_COUNT,
+               jobgap_a: int = JOBGAP_MIN, jobgap_b: int = JOBGAP_MIN,
+               sidespace: int = 20) -> str:
     page1_groups, page2_groups = groups[:page1_count], groups[page1_count:]
 
     env = jinja2.Environment(
@@ -537,6 +548,9 @@ def render_tex(job: dict, profile: dict, groups: list,
         page1_groups=page1_groups,
         page2_groups=page2_groups,
         intro=intro,
+        jobgap_a=jobgap_a,
+        jobgap_b=jobgap_b,
+        sidespace=sidespace,
     )
 
 
@@ -604,6 +618,8 @@ def generate_for_job(job_id: int) -> dict:
     trim_level = 0
     drop_droppable = False
     page1_count = PAGE1_POSITION_COUNT
+    excluded_ids = set()
+    weak_drop_count = 0
     attempts = []
     intro = None
 
@@ -613,7 +629,7 @@ def generate_for_job(job_id: int) -> dict:
         # rather than trying to renegotiate the LLM's selection
         use_llm = llm_recommendation if attempt == 1 else None
         groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable,
-                                        llm_recommendation=use_llm)
+                                        llm_recommendation=use_llm, excluded_ids=excluded_ids)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
             intro = generate_intro(job, groups, profile)
         tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count)
@@ -622,7 +638,7 @@ def generate_for_job(job_id: int) -> dict:
         result = compile_pdf(tex_path)
         attempts.append({"attempt": attempt, "used_llm_recommendation": use_llm is not None,
                           "trim_level": trim_level, "drop_droppable": drop_droppable,
-                          "page1_count": page1_count,
+                          "page1_count": page1_count, "excluded_count": len(excluded_ids),
                           "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
         if not result["ok"]:
@@ -630,16 +646,59 @@ def generate_for_job(job_id: int) -> dict:
         if result["page_count"] == 2 and result["overfull_vbox"] == 0:
             break
 
-        # shrink and retry: trim every position's detail-bullet budget
-        # toward its own floor first (cheapest content to lose), then drop
-        # the sole "droppable" position entirely, then rebalance the
-        # page1/page2 split as a last resort
-        if trim_level < 5:
+        # On overflow, first drop the single weakest currently-included
+        # bullet CV-wide (cheapest, most surgical cut -- one bullet, not a
+        # whole position's budget), up to WEAK_DROP_CAP times. Once that's
+        # exhausted (or nothing left to rank), fall back to the blunter
+        # levers: shrink every position's budget toward its own floor, then
+        # drop the sole "droppable" position entirely, then rebalance the
+        # page1/page2 split as a last resort.
+        weakest = None
+        if weak_drop_count < WEAK_DROP_CAP:
+            weakest = min(
+                ((bid, score) for g in groups for bid, score in g.get("detail_bullet_scores", [])),
+                key=lambda t: t[1], default=None,
+            )
+        if weakest is not None:
+            excluded_ids.add(weakest[0])
+            weak_drop_count += 1
+        elif trim_level < 5:
             trim_level += 1
         elif not drop_droppable:
             drop_droppable = True
         elif page1_count > 1:
             page1_count -= 1
+
+    # Content-trimming above only ever shrinks to fit. Once a clean 2-page
+    # fit is found, separately stretch each page's inter-entry spacing
+    # (independently, since one page may have more room than the other) up
+    # toward JOBGAP_MAX, so a page with room to spare looks intentionally
+    # filled rather than sparse. Any trial that breaks the fit is discarded.
+    if result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0:
+        jobgap_a, jobgap_b = JOBGAP_MIN, JOBGAP_MIN
+        for key in ("jobgap_a", "jobgap_b"):
+            gap = JOBGAP_MIN
+            while gap + JOBGAP_STEP <= JOBGAP_MAX:
+                trial = gap + JOBGAP_STEP
+                kwargs = {"jobgap_a": jobgap_a, "jobgap_b": jobgap_b, key: trial}
+                tex_content = render_tex(job, profile, groups, skill_categories, intro,
+                                          page1_count=page1_count, **kwargs)
+                tex_path.write_text(tex_content, encoding="utf-8")
+                trial_result = compile_pdf(tex_path)
+                if trial_result["ok"] and trial_result["page_count"] == 2 and trial_result["overfull_vbox"] == 0:
+                    gap = trial
+                else:
+                    break
+            if key == "jobgap_a":
+                jobgap_a = gap
+            else:
+                jobgap_b = gap
+        tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count,
+                                  jobgap_a=jobgap_a, jobgap_b=jobgap_b)
+        tex_path.write_text(tex_content, encoding="utf-8")
+        result = compile_pdf(tex_path)
+        attempts.append({"attempt": "spacing_fill", "jobgap_a": jobgap_a, "jobgap_b": jobgap_b,
+                          "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
     cover_letter_path = outdir / "cover_letter.txt"
     cover_letter_path.write_text(generate_cover_letter(job, groups, profile), encoding="utf-8")

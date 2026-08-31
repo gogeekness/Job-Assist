@@ -37,10 +37,15 @@
 \setlength{\sidebartextwidth}{\dimexpr\sidebarwidth-2\fboxsep\relax}
 \setlength{\maincolwidth}{\dimexpr\textwidth-\sidebarwidth-0.4cm\relax}
 
-\newlength{\jobgap}
-\setlength{\jobgap}{10pt}
+% Inter-entry spacing, set per-page from Python (generate_cv.py's fit-retry
+% loop stretches these within JOBGAP_MIN-JOBGAP_MAX to fill a page that has
+% room to spare, once content-trimming has already settled a clean 2-page fit)
+\newlength{\jobgappageA}
+\setlength{\jobgappageA}{\VAR{jobgap_a}pt}
+\newlength{\jobgappageB}
+\setlength{\jobgappageB}{\VAR{jobgap_b}pt}
 \newlength{\sidespace}
-\setlength{\sidespace}{16pt}
+\setlength{\sidespace}{\VAR{sidespace}pt}
 
 \newcommand{\sideskill}[1]{\vspace{4pt}\textbf{#1}\par}
 
@@ -144,12 +149,12 @@
 
 {\large \VAR{intro} \par}
 
-\vspace{\jobgap}
+\vspace{\jobgappageA}
 
 \BLOCK{for p in projects}
 \projectheader{\VAR{p.title}}{\VAR{p.period}}{\VAR{p.location}}
 {\large $\blacktriangleright$ \VAR{p.summary} \par}
-\vspace{\jobgap}
+\vspace{\jobgappageA}
 \BLOCK{endfor}
 
 \BLOCK{for g in page1_groups}
@@ -163,7 +168,9 @@
 \end{itemize}
 \BLOCK{endif}
 
-\vspace{\jobgap}
+\BLOCK{if not loop.last}
+\vspace{\jobgappageA}
+\BLOCK{endif}
 \BLOCK{endfor}
 \end{minipage}
 
@@ -220,7 +227,9 @@
 \end{itemize}
 \BLOCK{endif}
 
-\vspace{\jobgap}
+\BLOCK{if not loop.last}
+\vspace{\jobgappageB}
+\BLOCK{endif}
 \BLOCK{endfor}
 \end{minipage}
 

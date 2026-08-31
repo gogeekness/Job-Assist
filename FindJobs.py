@@ -1370,6 +1370,22 @@ def serve_generated_pdf(job_id):
         return "Not found", 404
     return Response(pdf_path.read_bytes(), mimetype="application/pdf")
 
+@app.route("/generated/<int:job_id>/cv.tex")
+def serve_generated_tex(job_id):
+    conn = connect_db()
+    row = conn.execute("SELECT cv_tex_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cv_tex_path"]:
+        return "Not found", 404
+    tex_path = Path(row["cv_tex_path"]).resolve()
+    generated_root = (BASE / "generated").resolve()
+    if generated_root not in tex_path.parents or not tex_path.exists():
+        return "Not found", 404
+    return Response(
+        tex_path.read_bytes(), mimetype="application/x-tex",
+        headers={"Content-Disposition": f'attachment; filename="{tex_path.name}"'},
+    )
+
 @app.route("/harvest/<source>", methods=["POST"])
 def harvest(source):
     if source not in _HARVEST_FNS:
@@ -1470,12 +1486,19 @@ def rebuild_bullets():
 # duplicate "German Variant 2 (DE)" header -- nothing gets silently
 # reinterpreted or dropped.
 
-def _bullet_csv_path():
+def _bullet_lang(raw):
+    """Every route accepts a lang param (query string or form field);
+    always resolve to a real configured language, defaulting to English
+    rather than trusting arbitrary input as a file-path key."""
     import cv_bank
-    return cv_bank.CSV_PATH
+    return raw if raw in cv_bank.CSV_PATHS else "en"
 
-def _read_bullet_csv_raw():
-    path = _bullet_csv_path()
+def _bullet_csv_path(lang="en"):
+    import cv_bank
+    return cv_bank.CSV_PATHS.get(lang, cv_bank.CSV_PATH)
+
+def _read_bullet_csv_raw(lang="en"):
+    path = _bullet_csv_path(lang)
     if not path.exists():
         return [], [], []
     with open(path, encoding="utf-8") as f:
@@ -1485,28 +1508,30 @@ def _read_bullet_csv_raw():
     data = [r for r in rows[2:] if any(r)]
     return banner, header, data
 
-def _write_bullet_csv_raw(banner, header, data_rows):
-    path = _bullet_csv_path()
+def _write_bullet_csv_raw(banner, header, data_rows, lang="en"):
+    path = _bullet_csv_path(lang)
     with open(path, "w", encoding="utf-8", newline="") as f:
         csv.writer(f).writerows([banner, header] + data_rows)
 
-def _backup_bullet_csv():
-    path = _bullet_csv_path()
+def _backup_bullet_csv(lang="en"):
+    path = _bullet_csv_path(lang)
     if not path.exists():
         return
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = path.with_suffix(path.suffix + f".bak-{stamp}")
     backup_path.write_bytes(path.read_bytes())
 
-def _rebuild_bullet_cache():
+def _rebuild_bullet_cache(lang="en"):
     import importlib
     import cv_bank
     importlib.reload(cv_bank)
-    cv_bank.build_bullet_store(force_rebuild=True)
+    cv_bank.build_bullet_store(force_rebuild=True, lang=lang)
 
 @app.route("/bullet_editor")
 def bullet_editor():
-    banner, header, data = _read_bullet_csv_raw()
+    import cv_bank
+    lang = _bullet_lang(request.args.get("lang"))
+    banner, header, data = _read_bullet_csv_raw(lang)
     id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
 
     # disambiguate any duplicate header labels (e.g. two "German Variant 2 (DE)"
@@ -1537,11 +1562,13 @@ def bullet_editor():
     return render_template("bullet_editor.html", header=header, labels=labels,
                             rows=rows, id_col=id_col, anchor_col=anchor_col,
                             left_cols=left_cols, right_cols=right_cols,
+                            lang=lang, langs=list(cv_bank.CSV_PATHS.keys()),
                             saved=request.args.get("saved"), error=request.args.get("error"))
 
 @app.route("/bullet_editor/save", methods=["POST"])
 def bullet_editor_save():
-    banner, header, data = _read_bullet_csv_raw()
+    lang = _bullet_lang(request.form.get("lang"))
+    banner, header, data = _read_bullet_csv_raw(lang)
     id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
 
     by_id = {}
@@ -1561,70 +1588,74 @@ def bullet_editor_save():
     new_ids = [r[id_col] for r in new_rows if id_col < len(r) and r[id_col].strip()]
     dupes = sorted({i for i in new_ids if new_ids.count(i) > 1})
     if dupes:
-        return redirect(url_for("bullet_editor",
+        return redirect(url_for("bullet_editor", lang=lang,
                                  error=f"Not saved -- duplicate ID(s): {', '.join(dupes)}. Every bullet needs a unique ID."))
 
-    _backup_bullet_csv()
-    _write_bullet_csv_raw(banner, header, new_rows)
-    _rebuild_bullet_cache()
-    return redirect(url_for("bullet_editor", saved=1))
+    _backup_bullet_csv(lang)
+    _write_bullet_csv_raw(banner, header, new_rows, lang)
+    _rebuild_bullet_cache(lang)
+    return redirect(url_for("bullet_editor", lang=lang, saved=1))
 
 @app.route("/bullet_editor/add", methods=["POST"])
 def bullet_editor_add():
-    banner, header, data = _read_bullet_csv_raw()
+    lang = _bullet_lang(request.form.get("lang"))
+    banner, header, data = _read_bullet_csv_raw(lang)
     id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
     new_row = [""] * len(header)
     # Placeholder only -- the real Company-Group-Unique ID depends on which
     # employer/group this bullet belongs to, which the user fills in below.
     new_row[id_col] = f"NEW-{uuid.uuid4().hex[:6]}"
 
-    _backup_bullet_csv()
-    _write_bullet_csv_raw(banner, header, data + [new_row])
-    _rebuild_bullet_cache()
-    return redirect(url_for("bullet_editor", saved=1))
+    _backup_bullet_csv(lang)
+    _write_bullet_csv_raw(banner, header, data + [new_row], lang)
+    _rebuild_bullet_cache(lang)
+    return redirect(url_for("bullet_editor", lang=lang, saved=1))
 
 @app.route("/bullet_editor/delete/<bullet_id>", methods=["POST"])
 def bullet_editor_delete(bullet_id):
-    banner, header, data = _read_bullet_csv_raw()
+    lang = _bullet_lang(request.form.get("lang") or request.args.get("lang"))
+    banner, header, data = _read_bullet_csv_raw(lang)
     id_col = next((i for i, h in enumerate(header) if h.strip().lower() == "id"), 1)
     kept = [r for r in data if not (id_col < len(r) and r[id_col] == bullet_id)]
 
-    _backup_bullet_csv()
-    _write_bullet_csv_raw(banner, header, kept)
-    _rebuild_bullet_cache()
-    return redirect(url_for("bullet_editor", saved=1))
+    _backup_bullet_csv(lang)
+    _write_bullet_csv_raw(banner, header, kept, lang)
+    _rebuild_bullet_cache(lang)
+    return redirect(url_for("bullet_editor", lang=lang, saved=1))
 
 @app.route("/bullet_editor/export")
 def bullet_editor_export():
-    path = _bullet_csv_path()
+    lang = _bullet_lang(request.args.get("lang"))
+    path = _bullet_csv_path(lang)
     if not path.exists():
         return "No bullet bank CSV found", 404
     return send_file(path, as_attachment=True, download_name=path.name, mimetype="text/csv")
 
 @app.route("/bullet_editor/import", methods=["POST"])
 def bullet_editor_import():
+    lang = _bullet_lang(request.form.get("lang"))
     upload = request.files.get("csv_file")
     if not upload or not upload.filename:
-        return redirect(url_for("bullet_editor", error="No file selected"))
+        return redirect(url_for("bullet_editor", lang=lang, error="No file selected"))
 
     try:
         text = upload.read().decode("utf-8")
         rows = list(csv.reader(io.StringIO(text)))
     except (UnicodeDecodeError, csv.Error) as e:
-        return redirect(url_for("bullet_editor", error=f"Could not parse file: {e}"))
+        return redirect(url_for("bullet_editor", lang=lang, error=f"Could not parse file: {e}"))
 
     if len(rows) < 3:
-        return redirect(url_for("bullet_editor", error="File doesn't look like the bullet bank (too few rows)"))
+        return redirect(url_for("bullet_editor", lang=lang, error="File doesn't look like the bullet bank (too few rows)"))
     header = rows[1]
     required = ["employer", "id", "job title", "period", "base bullet"]
     missing = [r for r in required if not any(r in h.lower() for h in header)]
     if missing:
-        return redirect(url_for("bullet_editor", error=f"Missing expected column(s): {', '.join(missing)}"))
+        return redirect(url_for("bullet_editor", lang=lang, error=f"Missing expected column(s): {', '.join(missing)}"))
 
-    _backup_bullet_csv()
-    _bullet_csv_path().write_text(text, encoding="utf-8")
-    _rebuild_bullet_cache()
-    return redirect(url_for("bullet_editor", saved=1))
+    _backup_bullet_csv(lang)
+    _bullet_csv_path(lang).write_text(text, encoding="utf-8")
+    _rebuild_bullet_cache(lang)
+    return redirect(url_for("bullet_editor", lang=lang, saved=1))
 
 @app.route("/settings/llm", methods=["POST"])
 def save_llm_config():

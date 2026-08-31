@@ -52,13 +52,23 @@ def _override_str(overrides: dict, key: str):
 
 
 _overrides = _load_path_overrides()
-CSV_PATH = Path(os.environ.get("CV_BANK_CSV_PATH") or _override_str(_overrides, "csv_path")
-                 or (BASE / "richard_cv_master_bullet_bank_g_update.csv"))
+# One same-shaped CSV per language (bullet_bank_en.csv, bullet_bank_de.csv, ...),
+# linked by sharing the same bullet IDs -- cv_bank merges them back into one
+# bullet per ID with a combined variants list. Add a language by adding a new
+# env var/override + entry here; no schema change needed in the other files.
+CSV_PATHS = {
+    "en": Path(os.environ.get("CV_BANK_CSV_PATH_EN") or _override_str(_overrides, "csv_path_en")
+               or (BASE / "bullet_bank_en.csv")),
+    "de": Path(os.environ.get("CV_BANK_CSV_PATH_DE") or _override_str(_overrides, "csv_path_de")
+               or (BASE / "bullet_bank_de.csv")),
+}
+CSV_PATH = CSV_PATHS["en"]  # back-compat alias -- the English file is still "the" primary source
 TEX_DIR = Path(os.environ.get("CV_BANK_TEX_DIR") or _override_str(_overrides, "tex_dir")
                 or (BASE / "LateX_Docs"))
 ODT_DIR = Path(os.environ.get("CV_BANK_ODT_DIR") or _override_str(_overrides, "odt_dir")
                 or (BASE / "CVs_Job_Dos"))
-CACHE_PATH = BASE / "bullet_store_cache.json"
+CACHE_PATH = BASE / "bullet_store_cache.json"  # back-compat alias for the English cache
+CACHE_PATHS = {lang: BASE / f"bullet_store_cache_{lang}.json" for lang in CSV_PATHS}
 
 SIMILARITY_THRESHOLD = 0.6
 CURRENT_YEAR = datetime.now().year
@@ -142,7 +152,14 @@ def _id_group_key(bullet_id: str) -> Optional[str]:
     return f"{m.group(1)}-{m.group(2)}" if m else None
 
 
-def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
+def load_csv_bullets(csv_path: Path = None, lang: str = "en") -> List[dict]:
+    """Loads one single-language bullet-bank CSV (bullet_bank_en.csv,
+    bullet_bank_de.csv, ...). Each language file is independent -- not
+    merged with any other -- so the exact same parsing/scoring/generation
+    code runs identically regardless of which one is loaded; only the
+    resulting bullet content differs. IDs need not match 1:1 across
+    language files."""
+    csv_path = csv_path if csv_path is not None else CSV_PATHS.get(lang, CSV_PATH)
     if not csv_path.exists():
         return []
 
@@ -170,21 +187,13 @@ def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
             continue
 
         base = _normalize(col(row, "Base Bullet"))
-        en_variants = []
+        variants = []
         for i, label in enumerate(VARIANT_LABELS):
             text = _normalize(col(row, f"Variation {i+1}"))
             if text:
-                en_variants.append({"label": label, "text": text, "lang": "en"})
+                variants.append({"label": label, "text": text, "lang": lang})
         if base:
-            en_variants.insert(0, {"label": "Base", "text": base, "lang": "en"})
-
-        de_cols = [i for i, h in enumerate(header) if "german variant" in h.lower()]
-        de_variants = []
-        for i, ci in enumerate(de_cols):
-            text = _normalize(row[ci]) if ci < len(row) else ""
-            label = VARIANT_LABELS[i] if i < len(VARIANT_LABELS) else f"Variant {i+1}"
-            if text:
-                de_variants.append({"label": label, "text": text, "lang": "de"})
+            variants.insert(0, {"label": "Base", "text": base, "lang": lang})
 
         family = [s.strip() for s in col(row, "Source CV Family").split(",") if s.strip()]
         skills = [s.strip() for s in col(row, "Core Skill Tags").split(",") if s.strip()]
@@ -208,7 +217,7 @@ def load_csv_bullets(csv_path: Path = CSV_PATH) -> List[dict]:
             "jd_keyword_notes": _normalize(col(row, "JD Keyword Notes")),
             "id_group": _id_group_key(rid),
             "is_summation": _id_group_key(rid) is not None and rid.split("-")[1] == "000",
-            "variants": en_variants + de_variants,
+            "variants": variants,
             "source_tag": f"csv:{rid}",
             "cv_timestamp_age_days": cv_age_days,
             "position_age_years": _position_age_years(period),
@@ -486,17 +495,29 @@ def _assign_rating_and_flexibility(bullets: List[dict]) -> None:
 # ── build / cache / sort / score ────────────────────────────────────────
 
 def build_bullet_store(force_rebuild: bool = False,
-                        csv_path: Path = CSV_PATH,
+                        lang: str = "en",
+                        csv_path: Path = None,
                         tex_dir: Path = TEX_DIR,
                         odt_dir: Path = ODT_DIR,
-                        cache_path: Path = CACHE_PATH) -> List[dict]:
+                        cache_path: Path = None) -> List[dict]:
+    """Builds (or returns the cached) bullet store for one language. Every
+    language runs through the exact same pipeline (load -> dedupe exact ->
+    similarity-group -> rate) -- only which CSV gets loaded differs. The
+    archived .tex/.odt CVs are English-only source material, so they're
+    only folded in for lang="en"; a language with no such archive just
+    gets its CSV bullets."""
+    csv_path = csv_path if csv_path is not None else CSV_PATHS.get(lang, CSV_PATH)
+    cache_path = cache_path if cache_path is not None else CACHE_PATHS.get(lang, CACHE_PATH)
+
     if not force_rebuild and cache_path.exists():
         try:
             return json.loads(cache_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             pass
 
-    bullets = load_csv_bullets(csv_path) + load_tex_bullets(tex_dir) + load_odt_bullets(odt_dir)
+    bullets = load_csv_bullets(csv_path, lang=lang)
+    if lang == "en":
+        bullets += load_tex_bullets(tex_dir) + load_odt_bullets(odt_dir)
     bullets = _dedupe_exact(bullets)
     _assign_similarity_groups(bullets)
     _assign_rating_and_flexibility(bullets)
