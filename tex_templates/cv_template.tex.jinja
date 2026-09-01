@@ -107,13 +107,13 @@
   \vspace{10pt}
 \BLOCK{endif}
 
-  \textbf{\LARGE Details:}\\
+  \textbf{\LARGE \VAR{labels.details}}\\
   \VAR{location}\\
   \VAR{phone}\\
   \href{mailto:\VAR{email}}{\VAR{email}}
 
   \vspace{\sidespace}
-  \textbf{\large Nationality:}\\
+  \textbf{\large \VAR{labels.nationality}}\\
   {\large \VAR{nationality}}
 
   {\large Active Chancenkarte}\\
@@ -121,14 +121,14 @@
 
 \BLOCK{if links}
   \vspace{\sidespace}
-  \textbf{\large Links:}\\
+  \textbf{\large \VAR{labels.links}}\\
 \BLOCK{for link in links}
   \href{\VAR{link.url}}{\VAR{link.label}}\\
 \BLOCK{endfor}
 \BLOCK{endif}
 
   \vspace{\sidespace}
-  \textbf{\LARGE Skills:}
+  \textbf{\LARGE \VAR{labels.skills}}
 \BLOCK{for cat in skill_categories}
 
   {\large\sideskill{\VAR{cat.label}}\par}
@@ -183,7 +183,7 @@
 \sidebarbox{%
 \BLOCK{if education}
   \vspace{10pt}
-  \textbf{\LARGE Education:}\\
+  \textbf{\LARGE \VAR{labels.education}}\\
   \vspace{6pt}
 \BLOCK{for e in education}
   \VAR{e.school}\\
@@ -195,7 +195,7 @@
 
 \BLOCK{if certificates}
   \vspace{\sidespace}
-  \textbf{\LARGE Certificates:}\\
+  \textbf{\LARGE \VAR{labels.certificates}}\\
   \vspace{6pt}
 \BLOCK{for c in certificates}
   \textbf{\large \VAR{c.name}} \\ \VAR{c.id} \\ \VAR{c.date}\\
@@ -205,7 +205,7 @@
 
 \BLOCK{if languages}
   \vspace{\sidespace}
-  \textbf{\Large Languages:}\\
+  \textbf{\Large \VAR{labels.languages}}\\
   \vspace{6pt}
 \BLOCK{for lang in languages}
   \VAR{lang.name} (\VAR{lang.level})\\

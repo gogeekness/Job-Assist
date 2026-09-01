@@ -3,6 +3,7 @@ PITCH: <one confident, natural first-person sentence pitching the candidate for 
 the real facts below -- paraphrase naturally, don't just copy a fact verbatim>
 QUESTION: <one open question specific to this job/company that invites a reply -- part of the pitch,
 not small talk>
+Write both lines in $language.
 
 Real facts to draw from (factual only, never invent anything beyond this):
 $achievements

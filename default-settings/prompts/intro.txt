@@ -1,5 +1,6 @@
 Write a 2-sentence factual professional summary for a CV, tailored to this job posting.
 Use ONLY the facts below -- never invent skills, employers, or achievements not listed.
+Write your response in $language.
 
 Job title: $title
 Job company: $company

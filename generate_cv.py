@@ -65,6 +65,20 @@ JOBGAP_MIN = 10   # pt, starting/fallback inter-entry spacing (was the old fixed
 JOBGAP_MAX = 20   # pt, upper bound when stretching spacing to fill a page with room to spare
 JOBGAP_STEP = 2    # pt, per refinement step
 
+# Sidebar section headers, per generation language -- everything else on
+# the page (bullet text, intro, cover letter) already comes from that
+# language's own source (bullet_bank_<lang>.csv, language-aware prompts),
+# so these are the last hardcoded-English pieces standing in the way of a
+# CV that's consistently one language throughout.
+SECTION_LABELS = {
+    "en": {"details": "Details:", "nationality": "Nationality:", "links": "Links:",
+           "skills": "Skills:", "education": "Education:", "certificates": "Certificates:",
+           "languages": "Languages:"},
+    "de": {"details": "Kontakt:", "nationality": "Staatsangehörigkeit:", "links": "Links:",
+           "skills": "Kenntnisse:", "education": "Ausbildung:", "certificates": "Zertifikate:",
+           "languages": "Sprachen:"},
+}
+
 # The Atlantis HPC cluster's InfiniBand/PXE/IPMI detail bullet (E029, the
 # Atlantis/Green500 summary itself, is already this position's anchor and
 # so always appears regardless of job type) -- but this specific detail
@@ -162,8 +176,13 @@ def job_text(job: dict) -> str:
 
 
 def pick_variant_text(bullet: dict, jtext: str) -> str:
+    """Picks a bullet's best phrasing angle for this job. Language-agnostic
+    by construction: each bullet's variants come from exactly one
+    language's CSV (bullet_bank_<lang>.csv, never merged -- see
+    cv_bank.load_csv_bullets), so whichever language's text is in
+    `variants` is what a CV in that language uses; no en/de branching
+    needed here."""
     lower = jtext.lower()
-    label_priority = ["Base"]
     if "site reliability" in lower or " sre" in lower:
         label_priority = ["Ops / SRE", "DevOps", "Linux Admin", "Base"]
     elif "devops" in lower:
@@ -171,19 +190,18 @@ def pick_variant_text(bullet: dict, jtext: str) -> str:
     else:
         label_priority = ["Linux Admin", "DevOps", "Ops / SRE", "Base"]
 
-    en_variants = {v["label"]: v["text"] for v in bullet["variants"] if v["lang"] == "en"}
-    base_text = en_variants.get("Base")
+    by_label = {v["label"]: v["text"] for v in bullet["variants"]}
+    base_text = by_label.get("Base")
 
     chosen = None
     for label in label_priority:
-        if label in en_variants:
-            chosen = en_variants[label]
+        if label in by_label:
+            chosen = by_label[label]
             break
-    if chosen is None and en_variants:
-        chosen = next(iter(en_variants.values()))
+    if chosen is None and by_label:
+        chosen = next(iter(by_label.values()))
     if chosen is None:
-        de_variants = [v["text"] for v in bullet["variants"] if v["lang"] == "de"]
-        return de_variants[0] if de_variants else ""
+        return ""
 
     # No real alternative -- if the picked phrasing-variant is the same
     # content as Base (never differentiated, or simply the same text),
@@ -251,7 +269,8 @@ def llm_recommend_bullets(job: dict, timeline: list):
 
 
 def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False,
-                           llm_recommendation: dict = None, excluded_ids: set = None):
+                           llm_recommendation: dict = None, excluded_ids: set = None,
+                           bullets: list = None):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
     happen to score well against this job. Each position always shows its
@@ -260,8 +279,11 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
     fixed (min, max) target per position (POSITION_BULLET_TARGETS),
     matching the density of Richard's own saved CVs. `trim_level` and
     `drop_droppable` only apply to the fallback path (the shrink-to-fit
-    retry loop degrades to it if the LLM's first pass doesn't fit)."""
-    timeline = cv_bank.build_position_timeline()
+    retry loop degrades to it if the LLM's first pass doesn't fit).
+    `bullets` should be one language's store (cv_bank.build_bullet_store(
+    lang=...)) -- defaults to English if not given, so this stays
+    backward-compatible for any caller that hasn't been updated."""
+    timeline = cv_bank.build_position_timeline(bullets)
 
     # relevance rank per position = best keyword match among its own bullets
     # (used for intro generation, and by the fallback path to pick WHICH
@@ -413,13 +435,24 @@ def _call_llm(prompt: str, max_tokens: int = 200) -> str:
     raise ValueError(f"no real LLM for backend={backend!r}")
 
 
-_DEFAULT_OPEN_QUESTION = (
-    "I'd welcome the chance to talk through how that experience applies here -- "
-    "what's the biggest priority for whoever takes this on in the first few months?"
-)
+LANGUAGE_NAMES = {"en": "English", "de": "German"}  # for the $language prompt substitution
+
+_DEFAULT_OPEN_QUESTION = {
+    "en": ("I'd welcome the chance to talk through how that experience applies here -- "
+           "what's the biggest priority for whoever takes this on in the first few months?"),
+    "de": ("Ich würde mich freuen, in einem Gespräch zu erläutern, wie diese Erfahrung hier "
+           "einfließen kann -- was ist die größte Priorität für diese Rolle in den ersten Monaten?"),
+}
+
+_COVER_LETTER_WRAPPER = {
+    "en": {"greeting": "Dear Hiring Team at {company},", "opening": "I'm writing about the {title} opening.",
+           "signoff": "Best regards,\n{name}"},
+    "de": {"greeting": "Sehr geehrtes Team von {company},", "opening": "ich schreibe Ihnen bezüglich der Position als {title}.",
+           "signoff": "Mit freundlichen Grüßen,\n{name}"},
+}
 
 
-def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
+def generate_cover_letter(job: dict, groups: list, profile: dict, lang: str = "en") -> str:
     """Fixed template (guaranteed shape/reliability) with two small LLM-
     filled gaps -- a pitch sentence and an open question -- rather than
     asking the model to compose a whole letter freeform. A smaller/local
@@ -427,7 +460,12 @@ def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
     sentence at a time than at holding together a whole coherent letter;
     each gap also degrades independently (a bad/missing pitch sentence
     doesn't cost the question, and vice versa) instead of an all-or-
-    nothing fallback to a generic template on any failure."""
+    nothing fallback to a generic template on any failure. `lang` picks
+    the fixed wrapper text (greeting/opening/signoff) and instructs the
+    LLM to write the pitch/question in that language too -- the achievement
+    bullets it draws from already come from that language's bullet bank
+    (see generate_for_job), so the whole letter stays one language."""
+    wrapper = _COVER_LETTER_WRAPPER.get(lang, _COVER_LETTER_WRAPPER["en"])
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
     top = by_relevance[:2]
     company = job.get("company") or "your team"
@@ -435,7 +473,8 @@ def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
     name = profile.get("name", "")
     fallback_highlight = top[0]["summary_raw"] if top else ""
 
-    pitch_sentence, open_question = fallback_highlight, _DEFAULT_OPEN_QUESTION
+    pitch_sentence = fallback_highlight
+    open_question = _DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"])
 
     if os.environ.get("LLM_BACKEND", "stub") != "stub":
         achievements = "\n".join(
@@ -445,6 +484,7 @@ def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
         prompt = _load_prompt("cover_letter").safe_substitute(
             achievements=achievements, title=title, company=company,
             description=(job.get("description") or "")[:800],
+            language=LANGUAGE_NAMES.get(lang, "English"),
         )
 
         try:
@@ -459,16 +499,17 @@ def generate_cover_letter(job: dict, groups: list, profile: dict) -> str:
             pass  # keep the factual fallback values for whichever gap(s) didn't fill
 
     return (
-        f"Dear Hiring Team at {company},\n\n"
-        f"I'm writing about the {title} opening. {pitch_sentence}\n\n"
+        f"{wrapper['greeting'].format(company=company)}\n\n"
+        f"{wrapper['opening'].format(title=title)} {pitch_sentence}\n\n"
         f"{open_question}\n\n"
-        f"Best regards,\n{name}"
+        f"{wrapper['signoff'].format(name=name)}"
     )
 
 
-def generate_intro(job: dict, groups: list, profile: dict) -> str:
+def generate_intro(job: dict, groups: list, profile: dict, lang: str = "en") -> str:
     """One small LLM call for a factual intro paragraph, prompted to use
-    only the selected bullets/skills -- falls back to a template
+    only the selected bullets/skills (which already come from `lang`'s
+    bullet bank, see generate_for_job) -- falls back to a template
     sentence on the stub backend (default, no API calls)."""
     backend = os.environ.get("LLM_BACKEND", "stub")
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
@@ -476,6 +517,12 @@ def generate_intro(job: dict, groups: list, profile: dict) -> str:
 
     if backend == "stub":
         base = profile.get("default_title", "Senior Linux Administrator")
+        if lang == "de":
+            employers_txt = ", ".join(top_employers_raw) if top_employers_raw else "produktiven Linux-Umgebungen"
+            return latex_escape(
+                f"{base} mit praktischer Erfahrung bei {employers_txt}, mit Fokus auf zuverlässige, "
+                f"automatisierte Infrastruktur, relevant für diese Rolle."
+            )
         employers_txt = ", ".join(top_employers_raw) if top_employers_raw else "production Linux environments"
         return latex_escape(
             f"{base} with hands-on experience across {employers_txt}, focused on reliable, "
@@ -488,6 +535,7 @@ def generate_intro(job: dict, groups: list, profile: dict) -> str:
     )
     prompt = _load_prompt("intro").safe_substitute(
         title=job.get("title"), company=job.get("company"), highlights=highlights,
+        language=LANGUAGE_NAMES.get(lang, "English"),
     )
 
     try:
@@ -504,8 +552,9 @@ def render_tex(job: dict, profile: dict, groups: list,
                skill_categories: list, intro: str,
                page1_count: int = PAGE1_POSITION_COUNT,
                jobgap_a: int = JOBGAP_MIN, jobgap_b: int = JOBGAP_MIN,
-               sidespace: int = 20) -> str:
+               sidespace: int = 20, lang: str = "en") -> str:
     page1_groups, page2_groups = groups[:page1_count], groups[page1_count:]
+    labels = SECTION_LABELS.get(lang, SECTION_LABELS["en"])
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH.parent)),
@@ -551,12 +600,13 @@ def render_tex(job: dict, profile: dict, groups: list,
         jobgap_a=jobgap_a,
         jobgap_b=jobgap_b,
         sidespace=sidespace,
+        labels=labels,
     )
 
 
 def _pdf_page_count(pdf_path: Path) -> int:
     try:
-        proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, timeout=20)
+        proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
         m = re.search(r"^Pages:\s+(\d+)", proc.stdout, re.MULTILINE)
         return int(m.group(1)) if m else -1
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -569,18 +619,18 @@ def compile_pdf(tex_path: Path) -> dict:
         proc = subprocess.run(
             ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error",
              f"-output-directory={outdir}", str(tex_path)],
-            cwd=str(outdir), capture_output=True, text=True, timeout=120,
+            cwd=str(outdir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
     except FileNotFoundError:
         proc = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
              f"-output-directory={outdir}", str(tex_path)],
-            cwd=str(outdir), capture_output=True, text=True, timeout=120,
+            cwd=str(outdir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
              f"-output-directory={outdir}", str(tex_path)],
-            cwd=str(outdir), capture_output=True, text=True, timeout=120,
+            cwd=str(outdir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
     pdf_path = tex_path.with_suffix(".pdf")
     ok = pdf_path.exists() and proc.returncode == 0
@@ -600,19 +650,29 @@ def slugify(text: str) -> str:
     return text or "job"
 
 
-def generate_for_job(job_id: int) -> dict:
+def generate_for_job(job_id: int, lang: str = "en") -> dict:
+    """Generates a CV entirely in one language: bullets come from
+    bullet_bank_<lang>.csv (cv_bank.build_bullet_store(lang=lang), never
+    mixed with another language), the LLM is instructed to write the
+    intro/cover-letter pitch in that language, and the sidebar section
+    headers switch too (SECTION_LABELS) -- no English/German mixing
+    within one generated CV."""
     profile = load_profile()
     job = get_job(job_id)
     jtext = job_text(job)
+    bullets = cv_bank.build_bullet_store(lang=lang)
 
-    all_bullets_for_skills = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext))
+    all_bullets_for_skills = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext, bullets))
     skill_categories = build_skill_categories(all_bullets_for_skills[:24])
 
-    outdir = OUTPUT_DIR / f"{slugify(job.get('company'))}_{slugify(job.get('title'))}_{job_id}"
+    dir_name = f"{slugify(job.get('company'))}_{slugify(job.get('title'))}_{job_id}"
+    if lang != "en":
+        dir_name += f"_{lang}"  # keep English's existing path untouched; other languages get their own dir
+    outdir = OUTPUT_DIR / dir_name
     outdir.mkdir(parents=True, exist_ok=True)
     tex_path = outdir / "cv.tex"
 
-    timeline = cv_bank.build_position_timeline()
+    timeline = cv_bank.build_position_timeline(bullets)
     llm_recommendation = llm_recommend_bullets(job, timeline)  # None on stub backend / failure
 
     trim_level = 0
@@ -629,10 +689,10 @@ def generate_for_job(job_id: int) -> dict:
         # rather than trying to renegotiate the LLM's selection
         use_llm = llm_recommendation if attempt == 1 else None
         groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable,
-                                        llm_recommendation=use_llm, excluded_ids=excluded_ids)
+                                        llm_recommendation=use_llm, excluded_ids=excluded_ids, bullets=bullets)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
-            intro = generate_intro(job, groups, profile)
-        tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count)
+            intro = generate_intro(job, groups, profile, lang=lang)
+        tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count, lang=lang)
         tex_path.write_text(tex_content, encoding="utf-8")
 
         result = compile_pdf(tex_path)
@@ -682,7 +742,7 @@ def generate_for_job(job_id: int) -> dict:
                 trial = gap + JOBGAP_STEP
                 kwargs = {"jobgap_a": jobgap_a, "jobgap_b": jobgap_b, key: trial}
                 tex_content = render_tex(job, profile, groups, skill_categories, intro,
-                                          page1_count=page1_count, **kwargs)
+                                          page1_count=page1_count, lang=lang, **kwargs)
                 tex_path.write_text(tex_content, encoding="utf-8")
                 trial_result = compile_pdf(tex_path)
                 if trial_result["ok"] and trial_result["page_count"] == 2 and trial_result["overfull_vbox"] == 0:
@@ -694,14 +754,14 @@ def generate_for_job(job_id: int) -> dict:
             else:
                 jobgap_b = gap
         tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count,
-                                  jobgap_a=jobgap_a, jobgap_b=jobgap_b)
+                                  jobgap_a=jobgap_a, jobgap_b=jobgap_b, lang=lang)
         tex_path.write_text(tex_content, encoding="utf-8")
         result = compile_pdf(tex_path)
         attempts.append({"attempt": "spacing_fill", "jobgap_a": jobgap_a, "jobgap_b": jobgap_b,
                           "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
     cover_letter_path = outdir / "cover_letter.txt"
-    cover_letter_path.write_text(generate_cover_letter(job, groups, profile), encoding="utf-8")
+    cover_letter_path.write_text(generate_cover_letter(job, groups, profile, lang=lang), encoding="utf-8")
 
     return {
         "ok": result["ok"],

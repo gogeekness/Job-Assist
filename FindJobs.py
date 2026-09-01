@@ -1629,7 +1629,19 @@ def bullet_editor_export():
     path = _bullet_csv_path(lang)
     if not path.exists():
         return "No bullet bank CSV found", 404
-    return send_file(path, as_attachment=True, download_name=path.name, mimetype="text/csv")
+    # The stored file is plain UTF-8 (no BOM) -- correct, and what our own
+    # csv parsing expects. But Excel/many spreadsheet apps ignore the
+    # Content-Type charset and guess the encoding of a downloaded CSV from
+    # its bytes alone, defaulting to a Windows codepage without a BOM --
+    # garbling umlauts/em-dashes even though the source file is fine. A
+    # UTF-8 BOM prepended to just this downloaded copy fixes that guess,
+    # without putting a BOM in the file our own code reads.
+    body = b"\xef\xbb\xbf" + path.read_bytes()
+    return Response(
+        body, mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"',
+                 "Content-Type": "text/csv; charset=utf-8"},
+    )
 
 @app.route("/bullet_editor/import", methods=["POST"])
 def bullet_editor_import():
@@ -1638,10 +1650,23 @@ def bullet_editor_import():
     if not upload or not upload.filename:
         return redirect(url_for("bullet_editor", lang=lang, error="No file selected"))
 
+    raw = upload.read()
+    # utf-8-sig strips a UTF-8 BOM if present (our own export adds one for
+    # Excel's benefit -- see bullet_editor_export). If a re-saved file
+    # isn't UTF-8 at all, it's almost always Excel's "CSV (Comma
+    # delimited)" export defaulting to the Windows codepage instead of
+    # "CSV UTF-8" -- try that before giving up, then re-store as clean
+    # UTF-8 either way so umlauts/em-dashes survive round-tripping.
     try:
-        text = upload.read().decode("utf-8")
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = raw.decode("cp1252")
+        except UnicodeDecodeError as e:
+            return redirect(url_for("bullet_editor", lang=lang, error=f"Could not parse file (unrecognized encoding): {e}"))
+    try:
         rows = list(csv.reader(io.StringIO(text)))
-    except (UnicodeDecodeError, csv.Error) as e:
+    except csv.Error as e:
         return redirect(url_for("bullet_editor", lang=lang, error=f"Could not parse file: {e}"))
 
     if len(rows) < 3:
