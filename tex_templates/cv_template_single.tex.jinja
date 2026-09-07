@@ -1,0 +1,168 @@
+% ============================================================
+%  Single-column CV style -- no sidebar. Skills near the top,
+%  education/certificates at the bottom. Positions flagged
+%  "earlier" (see POSITION_BULLET_TARGETS in generate_cv.py) render
+%  as a compact list at the end of Experience instead of a full
+%  entry. Compiles with plain pdflatex.
+% ============================================================
+\documentclass[10.5pt]{article}
+
+\usepackage[a4paper, top=1.0cm, bottom=1.0cm, left=1.0cm, right=1.0cm]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage[T1]{fontenc}
+\usepackage{amssymb}
+
+\IfFileExists{DejaVuSans.sty}{%
+  \usepackage{DejaVuSans}%
+}{%
+  \IfFileExists{tgheros.sty}{%
+    \usepackage[scaled]{tgheros}%
+  }{}%
+}
+\renewcommand{\familydefault}{\sfdefault}
+
+\definecolor{accent}{HTML}{2F6D92}
+\definecolor{darktext}{HTML}{1A1A1A}
+
+\newlength{\cvbuffersection}
+\setlength{\cvbuffersection}{9pt}
+\newlength{\cvbufferjob}
+\setlength{\cvbufferjob}{6pt}
+\newlength{\cvbuffercerts}
+\setlength{\cvbuffercerts}{0pt}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\color{darktext}
+
+\titleformat{\section}
+  {\Large\bfseries\color{accent}}
+  {}{0em}{}
+  [\vspace{0pt}{\color{accent}\hrule height 1pt}\vspace{2pt}]
+\titlespacing*{\section}{0pt}{\cvbuffersection}{1pt}
+
+% #1 job title  #2 dates  #3 company/context line  #4 location
+\newcommand{\jobentry}[4]{%
+\noindent
+    \begin{minipage}[t]{\linewidth}
+      \large
+      \textbf{#1}\hfill\textbf{#2}\\\textbf{#3}\hfill\textbf{#4}
+    \end{minipage}%
+}
+
+% parbox (not makebox) so a long cell -- e.g. nationality + visa status --
+% wraps within its own column instead of overflowing text into the next
+% one; [t] top-aligns wrapped cells against their unwrapped neighbors.
+\newcommand{\IntroBlock}[6]{%
+  \noindent
+    \begin{minipage}[t]{\linewidth}
+      \normalsize
+    \parbox[t]{0.32\linewidth}{\raggedright\textbf{#1}}\hfill%
+    \parbox[t]{0.32\linewidth}{\centering\textbf{#2}}\hfill%
+    \parbox[t]{0.32\linewidth}{\raggedleft\textbf{#3}}
+
+    \parbox[t]{0.32\linewidth}{\raggedright\textbf{#4}}\hfill%
+    \parbox[t]{0.32\linewidth}{\centering\textbf{#5}}\hfill%
+    \parbox[t]{0.32\linewidth}{\raggedleft\textbf{#6}}
+    \end{minipage}%
+  }
+
+\begin{document}
+
+% ============================================================
+%  HEADER
+% ============================================================
+\begin{center}
+  {\color{accent}\Huge\textbf{\VAR{name}}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large \VAR{title}}}\\[6pt]
+  {\small
+  \IntroBlock
+      {\VAR{location}}
+      {\VAR{phone}}
+      {\href{mailto:\VAR{email}}{\VAR{email}}}
+      {\VAR{nationality_line}}
+      {\VAR{languages_line}}
+      {\BLOCK{if links}\href{\VAR{links[0].url}}{\VAR{links[0].label}}\BLOCK{endif}}
+  }
+\end{center}
+
+% ============================================================
+%  PROFILE
+% ============================================================
+\section*{\VAR{labels.profile}}
+\vspace{\cvbufferjob}
+\large{\VAR{intro}}
+
+% ============================================================
+%  SKILLS
+% ============================================================
+\section*{\VAR{labels.skills}}
+\vspace{\cvbufferjob}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt, topsep=2pt]
+\BLOCK{for cat in skill_categories}
+  \item \textbf{\VAR{cat.label}} \BLOCK{for s in cat.skills}\VAR{s}\BLOCK{if not loop.last} \textbullet{} \BLOCK{endif}\BLOCK{endfor}
+\BLOCK{endfor}
+\end{itemize}
+\vspace{\cvbuffersection}
+
+% ============================================================
+%  EXPERIENCE
+% ============================================================
+\section*{\VAR{labels.experience}}
+\vspace{\cvbufferjob}
+\BLOCK{for g in full_groups}
+\jobentry{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}{}
+\vspace{\cvbufferjob}
+{\normalsize $\blacktriangleright$ \VAR{g.summary} \par}
+\BLOCK{if g.bullets}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt, topsep=3pt]
+\BLOCK{for bullet in g.bullets}
+  \item \VAR{bullet}
+\BLOCK{endfor}
+\end{itemize}
+\BLOCK{endif}
+\vspace{\cvbufferjob}
+\BLOCK{endfor}
+
+% ============================================================
+%  EARLIER
+% ============================================================
+\BLOCK{if earlier_groups}
+\section*{\VAR{labels.earlier}}
+\begin{itemize}[leftmargin=1.2em, itemsep=2pt, topsep=4pt]
+\BLOCK{for g in earlier_groups}
+  \item \textbf{\VAR{g.position_title} --- \VAR{g.employer} (\VAR{g.period}):} \\ \VAR{g.summary}
+\BLOCK{endfor}
+\end{itemize}
+\BLOCK{endif}
+
+% ============================================================
+%  CURRENT PROJECT
+% ============================================================
+\BLOCK{if projects}
+\section*{\VAR{labels.current_project}}
+\BLOCK{for p in projects}
+\textbf{\VAR{p.title} (\VAR{p.period}):} \VAR{p.summary}
+\BLOCK{endfor}
+\BLOCK{endif}
+
+% ============================================================
+%  EDUCATION & CERTIFICATIONS
+% ============================================================
+\section*{\VAR{labels.education[:-1]} \& \VAR{labels.certificates}}
+\BLOCK{for e in education}
+\large\textbf{\VAR{e.degree}, \VAR{e.school} (\VAR{e.year})}\vspace{0pt}
+\BLOCK{endfor}
+\begin{center}
+\begin{tabular}{lcr}
+\BLOCK{for c in certificates}
+  \vspace{\cvbuffercerts}
+  \textbf{\large \VAR{c.name}} & \VAR{c.id} & \VAR{c.date}\\
+\BLOCK{endfor}
+\end{tabular}
+\end{center}
+\end{document}

@@ -28,6 +28,7 @@ import cv_bank
 BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"
 TEMPLATE_PATH = BASE / "tex_templates" / "cv_template.tex.jinja"
+TEMPLATE_PATH_SINGLE = BASE / "tex_templates" / "cv_template_single.tex.jinja"
 PROFILE_PATH = BASE / "profile.local.json"
 PROMPTS_DIR = BASE / "active-settings" / "prompts"
 
@@ -59,6 +60,13 @@ POSITION_BULLET_TARGETS = {
 }
 DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position not in the table above
 PAGE1_POSITION_COUNT = 3  # Peer + Excelgens + Herbst, per the reference split
+# Single-column style ("Earlier" list vs a full entry): a position's own
+# best keyword match_score against THIS job's text decides its placement,
+# not a fixed per-position property -- e.g. YOC is normally too thin to
+# earn a full entry, but should get one when a job actually calls for
+# Ansible; Excelgens/Intel swing the same way depending on the job. See
+# render_tex_single's full_groups/earlier_groups split in generate_for_job.
+EARLIER_SCORE_THRESHOLD = 8  # roughly "at least one real keyword match" -- tune to taste
 WEAK_DROP_CAP = 6  # single-bullet drops tried before falling back to blunter levers
 MAX_FIT_ITERATIONS = 16  # WEAK_DROP_CAP(6) + trim_level(0-5, 6) + drop_droppable(1) + page1_count(~2) + headroom
 JOBGAP_MIN = 10   # pt, starting/fallback inter-entry spacing (was the old fixed \jobgap)
@@ -73,10 +81,12 @@ JOBGAP_STEP = 2    # pt, per refinement step
 SECTION_LABELS = {
     "en": {"details": "Details:", "nationality": "Nationality:", "links": "Links:",
            "skills": "Skills:", "education": "Education:", "certificates": "Certificates:",
-           "languages": "Languages:"},
+           "languages": "Languages:", "profile": "Profile", "experience": "Experience",
+           "earlier": "Earlier", "current_project": "Current Project"},
     "de": {"details": "Kontakt:", "nationality": "Staatsangehörigkeit:", "links": "Links:",
            "skills": "Kenntnisse:", "education": "Ausbildung:", "certificates": "Zertifikate:",
-           "languages": "Sprachen:"},
+           "languages": "Sprachen:", "profile": "Profil", "experience": "Erfahrung",
+           "earlier": "Frühere Positionen", "current_project": "Aktuelles Projekt"},
 }
 
 # The Atlantis HPC cluster's InfiniBand/PXE/IPMI detail bullet (E029, the
@@ -301,10 +311,16 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
         (pos["employer"], pos["position_title"], pos["period"]): rank
         for rank, (pos, _score) in enumerate(scored_positions)
     }
+    score_by_position = {
+        (pos["employer"], pos["position_title"], pos["period"]): score
+        for pos, score in scored_positions
+    }
 
     groups = []
     for pos in timeline:  # chronological order for the actual rendered CV
-        rank = rank_by_position[(pos["employer"], pos["position_title"], pos["period"])]
+        pos_key = (pos["employer"], pos["position_title"], pos["period"])
+        rank = rank_by_position[pos_key]
+        pos_score = score_by_position[pos_key]
         bullets_by_id = {b["id"]: b for b in pos["bullets"]}
         rec = llm_recommendation.get(pos["period"]) if llm_recommendation else None
         excluded = excluded_ids or set()
@@ -365,6 +381,7 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
             "bullets_raw": detail_texts_raw,
             "detail_bullet_scores": detail_ids,  # [(bullet_id, match_score), ...] -- for the fit-retry loop's weakest-bullet drop
             "relevance_rank": rank,
+            "earlier": pos_score < EARLIER_SCORE_THRESHOLD,  # dynamic per job -- see EARLIER_SCORE_THRESHOLD
         })
     return groups
 
@@ -604,6 +621,65 @@ def render_tex(job: dict, profile: dict, groups: list,
     )
 
 
+def render_tex_single(job: dict, profile: dict, groups: list,
+                       skill_categories: list, intro: str, lang: str = "en") -> str:
+    """Single-column style: skills near the top, education/certificates at
+    the bottom. Each position's "earlier" flag (build_position_groups,
+    driven by its own keyword relevance to THIS job vs
+    EARLIER_SCORE_THRESHOLD -- not a fixed property of the position) sends
+    it to a compact one-line list at the end of the experience section
+    instead of a full jobheader+bullets entry -- everything else stays
+    chronological within its own group, matching the two-column
+    template's ordering."""
+    labels = SECTION_LABELS.get(lang, SECTION_LABELS["en"])
+    full_groups = [g for g in groups if not g.get("earlier")]
+    earlier_groups = [g for g in groups if g.get("earlier")]
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH_SINGLE.parent)),
+        block_start_string=r"\BLOCK{", block_end_string="}",
+        variable_start_string=r"\VAR{", variable_end_string="}",
+        comment_start_string=r"\#{", comment_end_string="}",
+        trim_blocks=True, lstrip_blocks=True,
+        autoescape=False,
+    )
+    template = env.get_template(TEMPLATE_PATH_SINGLE.name)
+
+    languages = [{"name": latex_escape(l["name"]), "level": latex_escape(l["level"])}
+                 for l in profile.get("languages", [])]
+    languages_line = " / ".join(f"{l['name']} {l['level']}" for l in languages)
+
+    nationality = latex_escape(profile.get("nationality", ""))
+    visa = latex_escape(profile.get("visa", ""))
+    nationality_line = f"{nationality}, {visa}" if visa else nationality
+
+    return template.render(
+        name=latex_escape(profile.get("name", "")),
+        title=latex_escape(job.get("title") or profile.get("default_title", "")),
+        location=latex_escape(profile.get("location", "")),
+        phone=latex_escape(profile.get("phone", "")),
+        email=latex_escape(profile.get("email", "")),
+        nationality_line=nationality_line,
+        languages_line=languages_line,
+        links=[{"label": latex_escape(l["label"]), "url": latex_escape_url(l["url"])} for l in profile.get("links", [])],
+        # no _colon_break here (unlike the sidebar style) -- this layout has
+        # a full-width column, no need to force "Degree: Major" onto two lines
+        education=[{"school": latex_escape(e["school"]),
+                    "degree": latex_escape(e["degree"]), "year": latex_escape(e["year"])}
+                   for e in profile.get("education", [])],
+        certificates=[{"name": latex_escape(c["name"]), "id": latex_escape(c["id"]), "date": latex_escape(c["date"])}
+                      for c in profile.get("certificates", [])],
+        projects=[{"title": latex_escape(p["title"]), "period": latex_escape(p["period"]),
+                   "location": latex_escape(p["location"]), "summary": latex_escape(p["summary"])}
+                  for p in profile.get("projects", [])],
+        skill_categories=skill_categories,
+        full_groups=full_groups,
+        earlier_groups=earlier_groups,
+        intro=intro,
+        labels=labels,
+    )
+
+
 def _pdf_page_count(pdf_path: Path) -> int:
     try:
         proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
@@ -650,13 +726,16 @@ def slugify(text: str) -> str:
     return text or "job"
 
 
-def generate_for_job(job_id: int, lang: str = "en") -> dict:
+def generate_for_job(job_id: int, lang: str = "en", style: str = "sidebar") -> dict:
     """Generates a CV entirely in one language: bullets come from
     bullet_bank_<lang>.csv (cv_bank.build_bullet_store(lang=lang), never
     mixed with another language), the LLM is instructed to write the
     intro/cover-letter pitch in that language, and the sidebar section
     headers switch too (SECTION_LABELS) -- no English/German mixing
-    within one generated CV."""
+    within one generated CV. `style`: "sidebar" (default, two-column with
+    a colored sidebar) or "single" (one column, skills near the top,
+    education/certificates at the bottom, older/thin positions collapsed
+    into a compact "Earlier" list -- see render_tex_single)."""
     profile = load_profile()
     job = get_job(job_id)
     jtext = job_text(job)
@@ -668,6 +747,8 @@ def generate_for_job(job_id: int, lang: str = "en") -> dict:
     dir_name = f"{slugify(job.get('company'))}_{slugify(job.get('title'))}_{job_id}"
     if lang != "en":
         dir_name += f"_{lang}"  # keep English's existing path untouched; other languages get their own dir
+    if style != "sidebar":
+        dir_name += f"_{style}"
     outdir = OUTPUT_DIR / dir_name
     outdir.mkdir(parents=True, exist_ok=True)
     tex_path = outdir / "cv.tex"
@@ -692,7 +773,10 @@ def generate_for_job(job_id: int, lang: str = "en") -> dict:
                                         llm_recommendation=use_llm, excluded_ids=excluded_ids, bullets=bullets)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
             intro = generate_intro(job, groups, profile, lang=lang)
-        tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count, lang=lang)
+        if style == "single":
+            tex_content = render_tex_single(job, profile, groups, skill_categories, intro, lang=lang)
+        else:
+            tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count, lang=lang)
         tex_path.write_text(tex_content, encoding="utf-8")
 
         result = compile_pdf(tex_path)
@@ -734,7 +818,7 @@ def generate_for_job(job_id: int, lang: str = "en") -> dict:
     # (independently, since one page may have more room than the other) up
     # toward JOBGAP_MAX, so a page with room to spare looks intentionally
     # filled rather than sparse. Any trial that breaks the fit is discarded.
-    if result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0:
+    if style == "sidebar" and result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0:
         jobgap_a, jobgap_b = JOBGAP_MIN, JOBGAP_MIN
         for key in ("jobgap_a", "jobgap_b"):
             gap = JOBGAP_MIN
