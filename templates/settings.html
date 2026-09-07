@@ -34,7 +34,7 @@
           posting date when available (falls back to when we found it, since Greenhouse never provides
           a posting date). Jobs with a generated/approved CV or saved notes are always kept, regardless of age.
         </p>
-        <form method="POST" action="/settings/cleanup" class="d-flex align-items-end gap-2">
+        <form method="POST" action="/settings/cleanup" class="d-flex align-items-end gap-2" accept-charset="UTF-8">
           <div>
             <label class="form-label small">Remove postings older than (days)</label>
             <input type="number" name="retention_days" class="form-control form-control-sm" style="width:100px"
@@ -56,7 +56,7 @@
         <span class="text-muted small ms-2">one token per line</span>
       </div>
       <div class="card-body">
-        <form method="POST" action="/settings/boards">
+        <form method="POST" action="/settings/boards" accept-charset="UTF-8">
           <textarea name="boards" class="form-control font-monospace" rows="8"
                     placeholder="openai&#10;gitlab&#10;elastic&#10;datadog">{{ boards }}</textarea>
           <button type="submit" class="btn btn-primary btn-sm mt-2">
@@ -82,7 +82,7 @@
           <div><span class="text-muted small">From .odt archive</span><div class="fs-5 fw-bold">{{ bank_stats.odt }}</div></div>
         </div>
 
-        <form method="POST" action="/settings/cv_paths" class="mb-3">
+        <form method="POST" action="/settings/cv_paths" class="mb-3" accept-charset="UTF-8">
           <p class="text-muted small mb-2">
             These paths are machine-specific — override them here instead of relying on the
             <code>LateX_Docs/</code> and <code>CVs_Job_Dos/</code> symlinks at the repo root.
@@ -114,7 +114,7 @@
           </button>
         </form>
 
-        <form method="POST" action="/settings/rebuild_bullets">
+        <form method="POST" action="/settings/rebuild_bullets" accept-charset="UTF-8">
           <button type="submit" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-clockwise me-1"></i>Rebuild bullet store
           </button>
@@ -132,7 +132,7 @@
         <p class="mb-3">Current backend: <code>{{ llm_config.backend }}</code>
           <span class="text-muted small">— takes effect immediately, no restart needed</span></p>
 
-        <form method="POST" action="/settings/llm" id="llm-form">
+        <form method="POST" action="/settings/llm" id="llm-form" accept-charset="UTF-8">
           <div class="mb-3">
             <label class="form-label small fw-semibold">Backend</label>
             <select class="form-select form-select-sm" name="backend" id="llm-backend-select">

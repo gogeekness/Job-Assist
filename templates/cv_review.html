@@ -53,7 +53,7 @@
 
   <!-- Editable .tex -->
   <div class="col-12 col-lg-6">
-    <form method="POST" action="/jobs/{{ job.id }}/cv/recompile" class="h-100 d-flex flex-column">
+    <form method="POST" action="/jobs/{{ job.id }}/cv/recompile" class="h-100 d-flex flex-column" accept-charset="UTF-8">
       <div class="card h-100">
         <div class="card-header fw-semibold">
           <i class="bi bi-code-slash me-1"></i>LaTeX source
@@ -68,13 +68,13 @@
             <i class="bi bi-arrow-clockwise me-1"></i>Recompile
           </button>
           <div class="d-flex gap-2">
-            <form method="POST" action="/jobs/{{ job.id }}/generate_cv">
+            <form method="POST" action="/jobs/{{ job.id }}/generate_cv" accept-charset="UTF-8">
               <button type="submit" class="btn btn-outline-secondary btn-sm"
                       onclick="return confirm('Regenerate from scratch? Manual edits will be lost.')">
                 <i class="bi bi-arrow-repeat me-1"></i>Regenerate from scratch
               </button>
             </form>
-            <form method="POST" action="/jobs/{{ job.id }}/cv/approve">
+            <form method="POST" action="/jobs/{{ job.id }}/cv/approve" accept-charset="UTF-8">
               <button type="submit" class="btn btn-success btn-sm" {% if not job.cv_pdf_path %}disabled{% endif %}>
                 <i class="bi bi-check2-circle me-1"></i>Approve
               </button>
@@ -89,7 +89,7 @@
 {% if job.cover_letter_path %}
 <div class="row g-3 mt-1">
   <div class="col-12">
-    <form method="POST" action="/jobs/{{ job.id }}/cover_letter">
+    <form method="POST" action="/jobs/{{ job.id }}/cover_letter" accept-charset="UTF-8">
       <div class="card">
         <div class="card-header fw-semibold">
           <i class="bi bi-envelope me-1"></i>Cover Letter

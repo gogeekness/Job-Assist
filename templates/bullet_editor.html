@@ -29,12 +29,12 @@
     </ul>
 
     <div class="d-flex gap-2 mb-3">
-      <form method="POST" action="/bullet_editor/add">
+      <form method="POST" action="/bullet_editor/add" accept-charset="UTF-8">
         <input type="hidden" name="lang" value="{{ lang }}">
         <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add Bullet</button>
       </form>
       <a href="/bullet_editor/export?lang={{ lang }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
-      <form method="POST" action="/bullet_editor/import" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+      <form method="POST" action="/bullet_editor/import" enctype="multipart/form-data" accept-charset="UTF-8" class="d-flex gap-2 align-items-center">
         <input type="hidden" name="lang" value="{{ lang }}">
         <input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" style="width:auto">
         <button type="submit" class="btn btn-outline-warning btn-sm"
@@ -46,7 +46,7 @@
   </div>
 
   <div class="col-12">
-    <form method="POST" action="/bullet_editor/save">
+    <form method="POST" action="/bullet_editor/save" accept-charset="UTF-8">
       <input type="hidden" name="lang" value="{{ lang }}">
       <div id="bullet-scroll" class="border rounded p-2" style="max-height: 80vh; overflow-y: auto;">
       {% for row in rows %}

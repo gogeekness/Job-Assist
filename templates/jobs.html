@@ -30,7 +30,7 @@
             {% for p in presets %}
             <span class="badge bg-light text-dark border me-1 mb-1">
               {{ p.name }}
-              <form method="POST" action="{{ url_for('delete_search_preset', preset_id=p.id) }}" class="d-inline">
+              <form method="POST" action="{{ url_for('delete_search_preset', preset_id=p.id) }}" class="d-inline" accept-charset="UTF-8">
                 <button type="submit" class="btn-close btn-close-sm ms-1" style="font-size:.55rem"
                         onclick="return confirm('Delete preset &quot;{{ p.name }}&quot;?')" title="Delete preset"></button>
               </form>
@@ -40,7 +40,7 @@
           {% else %}
           <div class="form-text mb-2">No saved searches yet — apply filters below, then save them here.</div>
           {% endif %}
-          <form method="POST" action="/jobs/presets" class="d-flex gap-1">
+          <form method="POST" action="/jobs/presets" class="d-flex gap-1" accept-charset="UTF-8">
             <input type="hidden" name="query_string" value="{{ request.query_string.decode() }}">
             <input type="text" name="name" class="form-control form-control-sm" placeholder="Name this search…" required>
             <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">Save current</button>
@@ -48,7 +48,7 @@
           <div class="form-text">Saves the filters currently applied (click "Apply Filters" first if you just changed something).</div>
         </div>
 
-        <form method="GET" action="/jobs" id="filterForm">
+        <form method="GET" action="/jobs" id="filterForm" accept-charset="UTF-8">
 
           <!-- Text search -->
           <div class="filter-section">

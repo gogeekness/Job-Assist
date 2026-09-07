@@ -49,7 +49,7 @@
               <span class="badge {% if job.cv_status == 'approved' %}text-bg-success{% else %}text-bg-secondary{% endif %} ms-1">{{ job.cv_status }}</span>
             </a>
             {% else %}
-            <form method="POST" action="/jobs/{{ job.id }}/generate_cv">
+            <form method="POST" action="/jobs/{{ job.id }}/generate_cv" accept-charset="UTF-8">
               <button type="submit" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-magic me-1"></i>Generate CV
               </button>
