@@ -36,3 +36,13 @@ bullet_store_cache_*.json
 profile.local.json
 active-settings/
 backups/
+
+# profiles: real profiles hold personal data and stay local; only the
+# generic _skeleton (and its .gitkeep stubs) is tracked.
+.active_profile
+profiles/*
+!profiles/_skeleton/
+profiles/_skeleton/generated_cvs/*
+!profiles/_skeleton/generated_cvs/.gitkeep
+profiles/_skeleton/generated_cover_letters/*
+!profiles/_skeleton/generated_cover_letters/.gitkeep

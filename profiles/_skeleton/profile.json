@@ -1,0 +1,21 @@
+{
+  "name": "Your Name",
+  "default_title": "Your Professional Title",
+  "location": "City, Country",
+  "phone": "+00 000 0000000",
+  "email": "you@example.com",
+  "nationality": "Your Nationality",
+  "visa": "",
+  "links": [
+    {"label": "LinkedIn", "url": "https://www.linkedin.com/in/you/"}
+  ],
+  "photo_path": "",
+  "projects": [],
+  "education": [
+    {"school": "Your University", "degree": "Your Degree: Your Major", "year": "2000"}
+  ],
+  "certificates": [],
+  "languages": [
+    {"name": "English", "level": "Fluent"}
+  ]
+}
