@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Edit Profile ({{ active_profile }}) — Job Assist{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0"><i class="bi bi-person-badge me-1"></i>Profile: {{ active_profile }}</h5>
+    </div>
+    {% if saved %}
+    <div class="alert alert-success py-2 small">Saved.</div>
+    {% endif %}
+  </div>
+
+  <div class="col-12">
+    <form method="POST" accept-charset="UTF-8">
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Basics</div>
+        <div class="card-body row g-2">
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Name</label>
+            <input type="text" class="form-control form-control-sm" name="name" value="{{ data.get('name','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Default Title</label>
+            <input type="text" class="form-control form-control-sm" name="default_title" value="{{ data.get('default_title','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Location</label>
+            <input type="text" class="form-control form-control-sm" name="location" value="{{ data.get('location','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Phone</label>
+            <input type="text" class="form-control form-control-sm" name="phone" value="{{ data.get('phone','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Email</label>
+            <input type="text" class="form-control form-control-sm" name="email" value="{{ data.get('email','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Nationality</label>
+            <input type="text" class="form-control form-control-sm" name="nationality" value="{{ data.get('nationality','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Visa</label>
+            <input type="text" class="form-control form-control-sm" name="visa" value="{{ data.get('visa','') }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-muted mb-0">Photo Path <span class="text-muted">(optional, relative to profile dir)</span></label>
+            <input type="text" class="form-control form-control-sm" name="photo_path" value="{{ data.get('photo_path','') }}">
+          </div>
+        </div>
+      </div>
+
+      {% set groups = [
+        ('links', 'Links', [('label','Label'), ('url','URL')]),
+        ('education', 'Education', [('school','School'), ('degree','Degree'), ('year','Year')]),
+        ('certificates', 'Certificates', [('name','Name'), ('id','ID'), ('date','Date')]),
+        ('languages', 'Languages', [('name','Name'), ('level','Level')]),
+        ('projects', 'Projects', [('title','Title'), ('period','Period'), ('location','Location'), ('summary','Summary')]),
+      ] %}
+
+      {% for group, label, cols in groups %}
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">{{ label }}</span>
+          <button type="button" class="btn btn-outline-primary btn-sm add-row-btn" data-group="{{ group }}">
+            <i class="bi bi-plus-lg me-1"></i>Add
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="rows-{{ group }}">
+            {% for row in data.get(group, []) %}
+            <div class="row g-2 mb-2 align-items-end list-row">
+              {% for col, col_label in cols %}
+              <div class="col">
+                <label class="form-label small text-muted mb-0">{{ col_label }}</label>
+                {% if col == 'summary' %}
+                <textarea class="form-control form-control-sm" name="{{ group }}_{{ col }}" rows="2">{{ row.get(col,'') }}</textarea>
+                {% else %}
+                <input type="text" class="form-control form-control-sm" name="{{ group }}_{{ col }}" value="{{ row.get(col,'') }}">
+                {% endif %}
+              </div>
+              {% endfor %}
+              <div class="col-auto">
+                <button type="button" class="btn btn-outline-danger btn-sm remove-row-btn"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <template id="template-{{ group }}">
+            <div class="row g-2 mb-2 align-items-end list-row">
+              {% for col, col_label in cols %}
+              <div class="col">
+                <label class="form-label small text-muted mb-0">{{ col_label }}</label>
+                {% if col == 'summary' %}
+                <textarea class="form-control form-control-sm" name="{{ group }}_{{ col }}" rows="2"></textarea>
+                {% else %}
+                <input type="text" class="form-control form-control-sm" name="{{ group }}_{{ col }}" value="">
+                {% endif %}
+              </div>
+              {% endfor %}
+              <div class="col-auto">
+                <button type="button" class="btn btn-outline-danger btn-sm remove-row-btn"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save Profile</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.add-row-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const group = btn.dataset.group;
+    const tmpl = document.getElementById('template-' + group);
+    const rows = document.getElementById('rows-' + group);
+    rows.appendChild(tmpl.content.cloneNode(true));
+  });
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('.remove-row-btn')) {
+    e.target.closest('.list-row').remove();
+  }
+});
+</script>
+{% endblock %}

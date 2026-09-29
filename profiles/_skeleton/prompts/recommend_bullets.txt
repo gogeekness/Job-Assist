@@ -1,20 +1,65 @@
-You are selecting which real, factual bullet points to include in a tailored CV for this job.
+You are building the Experience section of a tailored CV for one specific job. Every real position in
+the candidate's career MUST appear somewhere in the output -- your job is to decide, for each one, how
+much space it earns and where it belongs.
 
 Job: $title at $company
 Description excerpt: $description
 
-The candidate's full career history and available bullets, most recent first. EVERY position below
-MUST appear in your output -- never omit a position entirely, even if you pick zero detail bullets
-for it (a bare one-line summary is fine for minor, short-tenure, or older roles).
+Candidate's full career history and available bullets, most recent first. Each position is tagged with
+its recency and tenure. Each bullet is tagged with its real Category (e.g. "Infrastructure",
+"Automation", "Monitoring") and, where present, a ★ marking one of that position's own always-consider
+picks -- a position typically has two: its one-line summary bullet, plus one standout detail bullet.
+A ★ is a strong signal for that ONE bullet, not proof the position needs nothing else.
 
 $blocks
 
-General shape to aim for (guidance, not a hard rule -- use judgment for THIS specific job): the 1-3
-most recent or most relevant roles typically get 3-5 detail bullets each; short-tenure or less
-relevant roles get 0-2. Never invent a bullet -- only use the exact [ID]s listed above.
+For EACH position, decide:
+
+1. PLACEMENT -- "full" (a detailed entry with a summary + 0-5 detail bullets) or "earlier" (a single
+summary line in a compact "Earlier" list, no detail bullets). Weigh these together, in this order of
+importance:
+   - RELEVANCE to THIS job: does the position's skills/domain genuinely match what this posting needs?
+     Strong relevance can justify "full" even for an old or short role; weak relevance can justify
+     "earlier" even for a recent one.
+   - PRIORITY GUIDANCE (when a position's block above includes one): the candidate's own explicit
+     calibration of that role's standing, informed by things keyword overlap alone can't see. Treat it
+     as a strong prior on how to read RECENCY/TENURE for that one role, not a blanket override --
+     e.g. a role tagged as a reliably strong fit should still win "full" whenever it's genuinely
+     relevant, even though it's not the most recent role, but it can still go "earlier" for a job that
+     is truly unrelated to its work.
+   - RECENCY: more recent roles generally read better as full entries; anything more than ~8-10 years
+     old needs real relevance to stay full.
+   - TENURE: a role held under a year has thinner real substance to show -- lean toward "earlier"
+     unless it's genuinely relevant to this job.
+   No single factor should decide it alone -- a recent-but-irrelevant role and an old-but-highly-relevant
+   role are both legitimate "full" calls, for different reasons; use judgment.
+
+2. BULLET SELECTION (only matters for "full" positions) -- pick which of the position's real bullets to
+use. The 1-3 most recent/relevant "full" positions typically carry 3-5 detail bullets; less central
+"full" positions typically carry 1-2 -- these counts are a FLOOR to aim for, not an optional target.
+NEVER leave detail_bullet_ids empty for a "full" position that has more than one real bullet available:
+the one-line summary alone is not a full entry, and a "full" position with zero detail bullets is
+always a mistake, not a valid minimal answer. Use each bullet's Category to judge topical fit against
+the job description, not just its wording -- a bullet tagged "Monitoring" is a stronger pick for a
+monitoring-heavy posting even if its prose doesn't happen to repeat the job's exact terms. Include the
+★-marked bullets for a "full" position (there are usually two per position, one of which is already
+your summary pick) unless a more directly relevant bullet from the same position makes one genuinely
+redundant -- but a ★ is a reason to include that bullet, never a reason to stop picking others.
+
+Balance check before you answer: a CV where every position is "full", or where every position but one
+is "earlier", is a bad answer for a real, mixed career history -- it means you're not actually weighing
+positions individually. A typical result has roughly 2-4 "full" positions (the strongest fits for THIS
+specific job) and the remaining, less relevant/older/shorter roles as "earlier". Deviate from that when
+the evidence genuinely calls for it, but don't default to an extreme.
+
+Never invent a bullet -- only use the exact [ID]s listed above. Never omit a position from your output,
+even as "earlier".
 
 Respond with ONLY valid JSON, no markdown fences, exactly one entry per position above, in this shape:
 {"positions": [
-  {"period": "<period exactly as given above>", "summary_bullet_id": "<ID to use as the one-line summary>",
-    "detail_bullet_ids": ["<ID>", "..."]}
+  {"period": "<period exactly as given above>", "placement": "full" | "earlier",
+   "reasoning": "<one sentence: which factor(s) drove this call>",
+   "summary_bullet_id": "<ID to use as the one-line summary>",
+   "detail_bullet_ids": ["<ID>", "..."]}
 ]}
+Try to keep each full position's block on one page -- avoid splitting a position across a page break.

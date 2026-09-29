@@ -55,25 +55,29 @@
   <div class="col-12 col-lg-6">
     <form method="POST" action="/jobs/{{ job.id }}/cv/recompile" class="h-100 d-flex flex-column" accept-charset="UTF-8">
       <div class="card h-100">
-        <div class="card-header fw-semibold">
-          <i class="bi bi-code-slash me-1"></i>LaTeX source
-          <span class="text-muted small ms-2">edit factual content here, then recompile</span>
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span>
+            <i class="bi bi-code-slash me-1"></i>LaTeX source
+            <span class="text-muted small ms-2 d-none d-md-inline">edit factual content here, then recompile</span>
+          </span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="copy-tex-btn">
+            <i class="bi bi-clipboard me-1"></i>Copy to Clipboard
+          </button>
         </div>
         <div class="card-body p-2">
-          <textarea name="tex_content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
+          <textarea name="tex_content" id="tex-content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
                     spellcheck="false">{{ tex_content }}</textarea>
         </div>
         <div class="card-footer d-flex gap-2 justify-content-between">
           <button type="submit" class="btn btn-primary btn-sm">
             <i class="bi bi-arrow-clockwise me-1"></i>Recompile
           </button>
-          <div class="d-flex gap-2">
-            <form method="POST" action="/jobs/{{ job.id }}/generate_cv" accept-charset="UTF-8">
-              <button type="submit" class="btn btn-outline-secondary btn-sm"
-                      onclick="return confirm('Regenerate from scratch? Manual edits will be lost.')">
-                <i class="bi bi-arrow-repeat me-1"></i>Regenerate from scratch
-              </button>
-            </form>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="regenerate-btn" data-job-id="{{ job.id }}">
+              <i class="bi bi-arrow-repeat me-1"></i>Regenerate from scratch
+              <span class="spinner-border spinner-border-sm ms-1 d-none" id="regenerate-spinner"></span>
+            </button>
+            <span class="form-text mb-0 d-none" id="regenerate-status">Talking to the LLM -- this can take a few minutes.</span>
             <form method="POST" action="/jobs/{{ job.id }}/cv/approve" accept-charset="UTF-8">
               <button type="submit" class="btn btn-success btn-sm" {% if not job.cv_pdf_path %}disabled{% endif %}>
                 <i class="bi bi-check2-circle me-1"></i>Approve
@@ -118,4 +122,89 @@
   </a>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const copyTexBtn = document.getElementById('copy-tex-btn');
+copyTexBtn.addEventListener('click', function() {
+  const text = document.getElementById('tex-content').value;
+  const done = () => {
+    const original = copyTexBtn.innerHTML;
+    copyTexBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+    setTimeout(() => { copyTexBtn.innerHTML = original; }, 1500);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+});
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); done(); }
+  catch (e) { alert('Copy failed -- select the text manually.'); }
+  document.body.removeChild(ta);
+}
+
+const regenBtn = document.getElementById('regenerate-btn');
+if (regenBtn) {
+  regenBtn.addEventListener('click', function() {
+    if (!confirm('Regenerate from scratch? Manual edits will be lost.')) return;
+    const jobId   = this.dataset.jobId;
+    const spinner = document.getElementById('regenerate-spinner');
+    const status  = document.getElementById('regenerate-status');
+    this.disabled = true;
+    spinner.classList.remove('d-none');
+    status.classList.remove('d-none');
+
+    fetch('/jobs/' + jobId + '/generate_cv', {method: 'POST'})
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { alert('Error: ' + data.error); resetRegenBtn(); return; }
+        pollRegenerateStatus(jobId);
+      })
+      .catch(e => { alert('Error: ' + e); resetRegenBtn(); });
+
+    function resetRegenBtn() {
+      regenBtn.disabled = false;
+      spinner.classList.add('d-none');
+      status.classList.add('d-none');
+    }
+  });
+}
+
+function pollRegenerateStatus(jobId) {
+  const status = document.getElementById('regenerate-status');
+  const startedAt = Date.now();
+  const iv = setInterval(() => {
+    fetch('/harvest/status').then(r => r.json()).then(data => {
+      const info = data['generate_cv_' + jobId];
+      if (!info) return;
+      if (info.state === 'running') {
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        status.textContent = info.count
+          ? `Talking to the LLM -- ${info.count} tokens received (${elapsed}s elapsed)`
+          : `Talking to the LLM -- ${elapsed}s elapsed, waiting for the model to respond...`;
+        return;
+      }
+      clearInterval(iv);
+      if (info.state === 'error') {
+        alert('CV generation failed: ' + (info.error || 'unknown error'));
+        regenBtn.disabled = false;
+        document.getElementById('regenerate-spinner').classList.add('d-none');
+        status.classList.add('d-none');
+        return;
+      }
+      window.location.reload();
+    });
+  }, 3000);
+}
+</script>
 {% endblock %}

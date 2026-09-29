@@ -1,0 +1,15 @@
+Write a professional English cover letter for the following job. The applicant is [YOUR NAME], a [YOUR TITLE] with [X] years of experience in [YOUR KEY SKILLS].
+
+Key background:
+- [BACKGROUND POINT 1]
+- [BACKGROUND POINT 2]
+- [BACKGROUND POINT 3]
+- Current: [CURRENT TECH STACK / FOCUS]
+
+Job title: [TITLE]
+Company: [COMPANY]
+Location: [LOCATION]
+Key requirements from JD: [2-4 BULLET POINTS FROM JD]
+
+Format: 3 short paragraphs. Professional but not stiff. No "I am writing to apply" opener.
+Max 250 words.

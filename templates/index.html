@@ -16,9 +16,7 @@
       <div class="card text-bg-success">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold">{{ stats.scored }}</div>
-          <div class="small">
-            {% if llm_backend == 'stub' %}Keyword Sorted{% else %}LLM Sorted ({{ llm_backend }}){% endif %}
-          </div>
+          <div class="small">Rated</div>
         </div>
       </div>
     </a>
@@ -188,23 +186,9 @@
   </div>
 </div>
 
-<!-- Quick filter shortcuts -->
+<!-- Bulk actions -->
 <div class="card mb-4">
-  <div class="card-header fw-semibold"><i class="bi bi-lightning me-1"></i>Quick Filters</div>
   <div class="card-body d-flex flex-wrap gap-2">
-    <a href="/jobs?region=berlin,germany,eu&language=english,partial_german&kw_and=linux,ansible"
-       class="btn btn-outline-secondary btn-sm">Linux + Ansible / EU</a>
-    <a href="/jobs?region=germany,eu&kw_and=hpc&kw_or=slurm,infiniband,pxe,ipmi"
-       class="btn btn-outline-secondary btn-sm">HPC / Research</a>
-    <a href="/jobs?kw_and=linux&kw_or=terraform,kubernetes,docker&language=english,partial_german"
-       class="btn btn-outline-secondary btn-sm">DevOps / Platform</a>
-    <a href="/jobs?ats=euraxess"
-       class="btn btn-outline-secondary btn-sm">EURAXESS only</a>
-    <a href="/jobs?scored=1&amp;sort=llm_score"
-       class="btn btn-outline-warning btn-sm"><i class="bi bi-sort-numeric-down"></i>
-       {% if llm_backend == 'stub' %}Keyword sorted{% else %}LLM sorted{% endif %}</a>
-    <a href="/jobs"
-       class="btn btn-outline-dark btn-sm">All Jobs (wide)</a>
     <button class="btn btn-outline-primary btn-sm" id="rate-bulk-btn">
       <i class="bi bi-play-circle"></i> Rate unrated jobs
       <span class="spinner-border spinner-border-sm ms-1 d-none" id="rate-bulk-spinner"></span>

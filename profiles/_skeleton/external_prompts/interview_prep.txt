@@ -1,0 +1,13 @@
+You are a senior interviewer in the candidate's field. Generate a realistic technical interview question set for this role.
+
+Job description / key tech stack: [PASTE JD OR KEY SKILLS]
+
+Produce:
+1. 5 core technical deep-dive questions for this field
+2. 3 automation / tooling questions relevant to the JD
+3. 3 specialty questions if the JD calls for a specific domain
+4. 2 process / workflow questions (CI/CD, collaboration tools, etc.)
+5. 2 behavioral questions typical for the target company's culture
+6. For each question: provide a strong answer outline (not a full answer — just the key points to hit)
+
+Calibrate difficulty to the candidate's actual seniority level.

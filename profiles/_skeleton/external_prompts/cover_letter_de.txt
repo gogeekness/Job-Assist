@@ -1,0 +1,15 @@
+Schreib ein professionelles deutsches Bewerbungsschreiben für folgende Stelle. Der/die Bewerber:in ist [DEIN NAME], [DEINE BERUFSBEZEICHNUNG] mit [X] Jahren Erfahrung.
+
+Wichtige Stationen:
+- [STATION 1]
+- [STATION 2]
+- [STATION 3]
+- Aktuell: [AKTUELLER TECH-STACK / SCHWERPUNKT]
+
+Stellentitel: [TITEL]
+Unternehmen: [UNTERNEHMEN]
+Standort: [STANDORT]
+Wichtigste Anforderungen: [2-3 PUNKTE AUS DER STELLENBESCHREIBUNG]
+
+Format: 3 kurze Absätze im professionellen Stil. Traditionelle DIN-5008-Anrede verwenden.
+Maximale Länge: 250 Wörter.

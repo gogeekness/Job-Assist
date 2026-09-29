@@ -1,0 +1,10 @@
+{
+  "_readme": "Domain vocabulary for CV generation and job scoring -- everything here is specific to YOUR field, not to the app. Every key below is optional and starts empty; the app works fine with nothing filled in, it just won't have any field-specific tuning yet. keyword_weights: {keyword: 0-10 relevance weight} for job-match scoring. skill_categories: [{label, keywords}] groups for the CV's Skills section -- only categories with a matched keyword are shown. skill_display_overrides: {lowercase_keyword: 'Display Text'} for acronyms/brand names .title() gets wrong. position_bullet_targets: {'Employer|||Job Title': {min, max, optional earlier_threshold, optional droppable, optional priority_tier, optional priority_note}} -- match the exact Employer/Job Title text from your bullet_bank.csv. priority_tiers: {tier_name: guidance_sentence} -- your own calibration of a tier's general standing, shown to the LLM for every position tagged with that tier (e.g. an older role you know is a reliably strong fit shouldn't be judged on recency alone); a position's own priority_note overrides/supplements its tier's sentence with something specific to that one role. pinned_bullets: [{bullet_id, position_key, trigger_keywords}] to force-include one bullet whenever a job mentions certain terms.",
+
+  "keyword_weights": {},
+  "skill_categories": [],
+  "skill_display_overrides": {},
+  "priority_tiers": {},
+  "position_bullet_targets": {},
+  "pinned_bullets": []
+}

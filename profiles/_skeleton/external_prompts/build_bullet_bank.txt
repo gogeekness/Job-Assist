@@ -1,0 +1,34 @@
+You are helping me build the source data for a job-application tool I use. The tool keeps a structured "bullet bank" -- one entry per real, factual achievement from my career -- and later auto-assembles tailored CVs from it per job posting. Turn my raw career history below into properly-structured bullet-bank entries. Never invent, exaggerate, or infer anything beyond what I've written -- only structure and phrase what's actually there.
+
+For EACH position in my history below, produce:
+
+1. ONE summation entry (group "000") -- a single sentence (roughly 15-25 words) summarizing that role's overall scope and impact.
+2. 3-6 detail entries -- each a specific, factual achievement or responsibility. Concrete over vague: name the tools, the scale (systems/users/% improvement), and the outcome, not just the task. One idea per entry.
+
+For EACH entry (summation and detail), give me:
+- ID: <CompanyCode>-<Group>-<Unique> -- CompanyCode is the first + last 2 letters of the employer name (e.g. "Peer Network PSU" -> "PeSU"); Group is "000" for the summation entry, or "001", "002"... for each distinct achievement (entries that are just phrasing variants of the SAME achievement share a Group number); Unique is "001", "002"... within that group.
+- Category: one short label for the kind of work (e.g. "Infrastructure", "Automation", "Monitoring", "Incident Response", "Leadership")
+- Base Bullet: the primary phrasing, factual and specific
+- Variation 1 (Linux Admin framing) / Variation 2 (DevOps framing) / Variation 3 (Ops/SRE framing): OPTIONAL -- only include a variant if that achievement genuinely reads differently emphasized for that angle. Skip any that would just reword the same sentence; it's fine for an entry to have only a Base Bullet.
+- Core Skill Tags: comma-separated, lowercase, real tool/technology names only (e.g. "linux, ansible, terraform") -- no vague tags like "teamwork"
+- Anchor: yes/no -- "yes" only for the single most important, always-include entry per position (usually the summation, occasionally one standout detail)
+
+Formatting rules:
+- First person, past tense, active voice ("Administered", "Built", "Reduced" -- not "Responsible for")
+- No fabricated metrics -- if a number isn't in my notes below, don't invent one
+- No filler phrases ("worked closely with", "helped to", "was involved in")
+- Each detail entry must be usable standalone, without needing the summation for context
+
+Output: one block per entry, in exactly this shape, for every position, in one pass -- don't ask me follow-up questions, just do your best with what's given and flag anything ambiguous inline as a bracketed note instead of stopping:
+
+ID: PeSU-001-001
+Category: Infrastructure
+Anchor: no
+Core Skill Tags: proxmox, openstack, terraform
+Base Bullet: <text>
+Variation 1 (Linux Admin): <text, or omit this line>
+Variation 2 (DevOps): <text, or omit this line>
+Variation 3 (Ops/SRE): <text, or omit this line>
+
+My career history (position: employer, job title, dates, then whatever notes/bullets/old CV text I have for it):
+[PASTE YOUR CAREER HISTORY HERE -- one position at a time, as much detail as you have]

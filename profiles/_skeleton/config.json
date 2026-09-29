@@ -1,20 +1,9 @@
 {
   "language": "English",
+  "lang": "en",
   "llm_backend": "stub",
   "ollama_model": "",
   "ollama_host": "http://localhost:11434",
   "job_retention_days": 45,
-  "section_labels": {
-    "details": "Details:",
-    "nationality": "Nationality:",
-    "links": "Links:",
-    "skills": "Skills:",
-    "education": "Education:",
-    "certificates": "Certificates:",
-    "languages": "Languages:",
-    "profile": "Profile",
-    "experience": "Experience",
-    "earlier": "Earlier",
-    "current_project": "Current Project"
-  }
+  "include_tex_odt_archive": false
 }

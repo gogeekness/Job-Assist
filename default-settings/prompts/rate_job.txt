@@ -12,9 +12,9 @@ Candidate's CV blocks:
 $blocks_text
 
 Rate this job for the candidate on a scale of 0–10. Consider:
-- Technical overlap: Linux, HPC, Ansible, Terraform, Docker, Kubernetes, Python, Bash, Slurm, InfiniBand, IPMI, PXE
+- Technical overlap: Linux, Ansible, Terraform, Docker, Kubernetes, Python, Bash
 - Location / language fit: Germany or EU English-first roles preferred; partial German acceptable
-- Company type: research institutions, tech companies, cloud providers
+- Company type: tech companies, cloud providers
 - Career growth and stability
 
 Be a discerning filter, not an encouraging cheerleader -- most real postings should land in the

@@ -15,69 +15,120 @@ project decision: get CV generation solid first).
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from string import Template
 
 import jinja2
 
 import cv_bank
+import db
+import profile as profile_mod
 
 BASE = Path(__file__).parent
-DB_PATH = BASE / "jobs.db"
-TEMPLATE_PATH = BASE / "tex_templates" / "cv_template.tex.jinja"
-TEMPLATE_PATH_SINGLE = BASE / "tex_templates" / "cv_template_single.tex.jinja"
-PROFILE_PATH = BASE / "profile.local.json"
-PROMPTS_DIR = BASE / "active-settings" / "prompts"
 
 
 def _load_prompt(name: str) -> Template:
-    return Template((PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8"))
-PROFILE_EXAMPLE_PATH = BASE / "profile.example.json"
-OUTPUT_DIR = BASE / "generated"
+    return Template((profile_mod.prompts_dir() / f"{name}.txt").read_text(encoding="utf-8"))
 
-# Per-position detail-bullet targets (min, max), keyed by the position's
-# `period` string from the CSV timeline (unique per position here) --
-# matches the density of Richard's own saved/reference CVs exactly,
-# rather than an algorithmic relevance-rank taper. Relevance scoring
-# still decides WHICH bullets fill this budget (see
-# _rank_bullets_with_fallback), just not HOW MANY. "droppable": True
-# marks the sole position allowed to disappear entirely (not just lose
-# detail bullets) if page 2 is still too tight after every other budget
-# has been trimmed to its floor.
-POSITION_BULLET_TARGETS = {
-    "2025–present": {"min": 4, "max": 5},   # Peer Network PSU
-    "2024":         {"min": 0, "max": 1},   # Excelgens / Native Teams
-    "2023–2024":    {"min": 3, "max": 5},   # Herbst Datentechnik GmbH
-    "2019–2023":    {"min": 3, "max": 5},   # Operational Services GmbH / Modus
-    "2018":         {"min": 0, "max": 0},   # YOC -- summary only
-    "2016–2017":    {"min": 3, "max": 5},   # Mindtree onsite at Microsoft
-    "2015–2016":    {"min": 3, "max": 4},   # CompuCom onsite at Amazon
-    "2013–2014":    {"min": 0, "max": 1},   # Abacus Service Corporation on Intel (HPC)
-    "2005–2013":    {"min": 0, "max": 1, "droppable": True},  # CompuCom onsite at Intel
-}
-DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position not in the table above
-PAGE1_POSITION_COUNT = 3  # Peer + Excelgens + Herbst, per the reference split
+
+def _active_lang() -> str:
+    """Which fixed-text locale (SECTION_LABELS/LANGUAGE_NAMES/cover-letter
+    wrapper) to use -- a property of the active profile, not a per-call
+    choice. Defaults to English for a profile that hasn't set it, or in
+    legacy (no active profile) mode."""
+    return profile_mod.load_config().get("lang", "en")
+
+def position_key(employer: str, position_title: str) -> str:
+    """Stable identifier for a position, independent of language or date
+    corrections -- Employer/Job Title text is identical across a profile's
+    EN/DE bullet banks (unlike the Period string, which isn't: German
+    month abbreviations differ for May/Oct/Dec). Used to key
+    position_bullet_targets/pinned_bullets in domain.json."""
+    return f"{employer}|||{position_title}"
+
+
+def position_bullet_targets() -> dict:
+    """The active profile's own per-position detail-bullet-count targets
+    (domain.json's "position_bullet_targets", keyed by position_key) --
+    matches the density of that profile owner's real saved/reference CVs,
+    rather than an algorithmic relevance-rank taper. Relevance scoring
+    still decides WHICH bullets fill this budget (see
+    _rank_bullets_with_fallback), just not HOW MANY. A profile without
+    any configured just gets DEFAULT_BULLET_TARGET everywhere -- a
+    reasonable, field-agnostic starting point, not Richard's own tuning."""
+    return profile_mod.load_domain_config().get("position_bullet_targets", {})
+
+
+def priority_tiers() -> dict:
+    """The active profile's own {tier_name: guidance_sentence} map
+    (domain.json's "priority_tiers") -- lets the profile owner state their
+    own calibration of which positions matter more than a pure
+    recency/keyword-match score would suggest (e.g. "this older role is a
+    reliably strong fit, don't bury it just because it's not the most
+    recent"), and have that reach the LLM's placement prompt directly
+    instead of being re-derived from scratch per job. A position's own
+    tier is looked up via its position_bullet_targets() entry's
+    "priority_tier" key; see llm_recommend_bullets."""
+    return profile_mod.load_domain_config().get("priority_tiers", {})
+
+
+GENERATION_BALANCE_DEFAULT = 5  # 0-10 dial, same scale as job llm_score -- see generation_mode()
+
+
+def generation_mode() -> str:
+    """Where the active profile's own 0-10 "rule-based <-> LLM-led" dial
+    (config.json's "generation_balance") currently sits, collapsed to one
+    of three real behaviors -- there are only three distinct code paths
+    for this, not ten, so values within a band behave identically:
+      "rule"   (0-2): llm_recommend_bullets() skips the LLM call entirely
+                -- pure position_bullet_targets/earlier_threshold/keyword-
+                score placement, deterministic and model-independent.
+      "hybrid" (3-7, default): today's behavior -- the LLM drives
+                placement/bullet selection, and build_position_groups's
+                safety nets (priority-tier override, empty-picks fallback,
+                hard max cap) stay on.
+      "llm"    (8-10): LLM placement is trusted fully -- the priority-tier
+                safety-net override is disabled, for a profile owner who
+                trusts their backend and wants more per-job variety even
+                against strong keyword evidence.
+    Deliberately scoped to placement/bullet-selection only (the one part
+    of generation with a real rule-based equivalent) -- generate_intro/
+    generate_cover_letter have no rule-based alternative to dial toward,
+    so they're unaffected and keep following llm_backend/"stub" as before."""
+    try:
+        val = int(profile_mod.load_config().get("generation_balance", GENERATION_BALANCE_DEFAULT))
+    except (TypeError, ValueError):
+        val = GENERATION_BALANCE_DEFAULT
+    if val <= 2:
+        return "rule"
+    if val >= 8:
+        return "llm"
+    return "hybrid"
+
+
+DEFAULT_BULLET_TARGET = {"min": 1, "max": 2}  # fallback for any position with no configured target
 # Single-column style ("Earlier" list vs a full entry): a position's own
 # best keyword match_score against THIS job's text decides its placement,
 # not a fixed per-position property -- e.g. YOC is normally too thin to
 # earn a full entry, but should get one when a job actually calls for
 # Ansible; Excelgens/Intel swing the same way depending on the job. See
 # render_tex_single's full_groups/earlier_groups split in generate_for_job.
-EARLIER_SCORE_THRESHOLD = 8  # roughly "at least one real keyword match" -- tune to taste
+# Every CSV bullet with ANY keyword overlap already gets a flat +6 boost in
+# cv_bank.score_bullets, so even one generic, near-universal keyword (e.g.
+# "linux", which appears in almost every position's bullets) alone clears a
+# low bar -- 16 requires either one genuinely strong/specific keyword or
+# more than one real match, not just incidental overlap.
+EARLIER_SCORE_THRESHOLD = 16
+EARLIER_PROTECTED_RECENT_COUNT = 1  # the N most recent positions are always a full entry, regardless of score -- just the current role; short-tenure recent roles (e.g. Excelgens) still go through normal scoring
 WEAK_DROP_CAP = 6  # single-bullet drops tried before falling back to blunter levers
-MAX_FIT_ITERATIONS = 16  # WEAK_DROP_CAP(6) + trim_level(0-5, 6) + drop_droppable(1) + page1_count(~2) + headroom
-JOBGAP_MIN = 10   # pt, starting/fallback inter-entry spacing (was the old fixed \jobgap)
-JOBGAP_MAX = 20   # pt, upper bound when stretching spacing to fill a page with room to spare
-JOBGAP_STEP = 2    # pt, per refinement step
+MAX_FIT_ITERATIONS = 13  # WEAK_DROP_CAP(6) + trim_level(0-5, 6) + drop_droppable(1) + headroom
 
-# Sidebar section headers, per generation language -- everything else on
-# the page (bullet text, intro, cover letter) already comes from that
-# language's own source (bullet_bank_<lang>.csv, language-aware prompts),
-# so these are the last hardcoded-English pieces standing in the way of a
-# CV that's consistently one language throughout.
+# Section headers, per active profile's language (_active_lang) --
+# everything else on the page (bullet text, intro, cover letter) already
+# comes from that profile's own bullet bank and language-aware prompts.
 SECTION_LABELS = {
     "en": {"details": "Details:", "nationality": "Nationality:", "links": "Links:",
            "skills": "Skills:", "education": "Education:", "certificates": "Certificates:",
@@ -89,38 +140,50 @@ SECTION_LABELS = {
            "earlier": "Frühere Positionen", "current_project": "Aktuelles Projekt"},
 }
 
-# The Atlantis HPC cluster's InfiniBand/PXE/IPMI detail bullet (E029, the
-# Atlantis/Green500 summary itself, is already this position's anchor and
-# so always appears regardless of job type) -- but this specific detail
-# bullet only competes for that position's 0-1 budget slot like any other,
-# so it isn't guaranteed to surface even for a genuinely HPC-relevant
-# posting. Pin it in whenever the job actually needs that signal.
-HPC_PINNED_BULLET = {"period": "2013–2014", "bullet_id": "Abel-002-001"}
-HPC_SIGNAL_KEYWORDS = {"hpc", "cluster", "slurm", "infiniband", "ipmi", "pxe",
-                        "gpfs", "lustre", "beegfs", "mpi", "openmpi", "cuda", "rdma"}
+# A profile can pin a specific bullet into the CV whenever the job
+# posting mentions certain keywords, regardless of normal scoring -- for
+# a standout achievement that's easy to under-rank by keyword overlap
+# alone (Richard's own domain.json uses this for an HPC cluster detail
+# bullet that only matters for HPC-flavored postings). Config-driven and
+# empty by default -- no field-specific assumption baked into code.
+def pinned_bullets() -> list:
+    return profile_mod.load_domain_config().get("pinned_bullets", [])
 
-def _is_hpc_relevant_job(jtext: str) -> bool:
-    lower = (jtext or "").lower()
-    return any(kw in lower for kw in HPC_SIGNAL_KEYWORDS)
 
-SKILL_CATEGORIES = [
-    ("Linux Administration", ["linux", "debian", "ubuntu", "rhel", "alma"]),
-    ("Cloud Platforms", ["aws", "azure", "vmware", "openstack", "proxmox"]),
-    ("Networking", ["networking", "routing", "nfs", "iscsi", "fiber channel", "fibre channel"]),
-    ("Scripting & Automation", ["ansible", "terraform", "bash", "python", "puppet", "chef", "saltstack", "packer"]),
-    ("Monitoring & Logging", ["grafana", "graylog", "icinga", "loki", "prometheus"]),
-    ("DevOps & CI/CD", ["docker", "kubernetes", "jenkins", "gitlab", "github actions", "ci/cd", "nginx"]),
-    ("HPC & Storage", ["hpc", "cluster", "slurm", "infiniband", "ipmi", "pxe", "gpu", "ceph", "zfs",
-                        "lustre", "gpfs", "beegfs", "mpi", "openmpi", "cuda", "rdma"]),
-]
+def skill_categories_config() -> list:
+    """The active profile's own CV "Skills" section groupings
+    (domain.json's "skill_categories": [{label, keywords}, ...]) -- empty
+    for a profile that hasn't configured any, in which case the Skills
+    section simply has nothing to show (see build_skill_categories)."""
+    return [(c["label"], c["keywords"]) for c in profile_mod.load_domain_config().get("skill_categories", [])]
 
 
 # Decorative list-marker glyphs some of the source .odt files use (►, □, ∆,
 # bullets, arrows, dingbats) -- pdfTeX can't render these without extra
 # Unicode setup, and they're redundant with LaTeX's own \item marker anyway.
+# Also covers the actual emoji block (U+1F000-U+1FFFF) -- real scraped job
+# postings put these straight in the title/company text (e.g. a literal
+# "🌄" in "...Hybrid in Freiburg🌄"), and plain pdflatex fatal-errors on
+# them ("Unicode character ... not set up for use with LaTeX") same as any
+# other glyph here, just from external job data instead of the bullet bank.
 _DECORATIVE_GLYPH_RE = re.compile(
-    "[←-⇿∀-⋿⌀-⏿─-◿☀-➿]+\\s*"
+    "[←-⇿∀-⋿⌀-⏿─-◿☀-➿\U0001F000-\U0001FFFF]+\\s*"
 )
+
+# Job postings (esp. German-market ones) commonly append a gender-neutral
+# disclaimer to the title -- "(m/w/d)", "(f/m/d)", "(all genders)" -- which
+# is a legal/HR formality about the posting, not part of the job title
+# itself, and reads oddly stitched onto a CV header.
+_GENDER_MARKER_RE = re.compile(
+    r"\(\s*[mwfdx]\s*(?:/\s*[mwfdx]\s*){1,3}\)|\(\s*all\s+genders?\s*\)",
+    re.IGNORECASE,
+)
+
+
+def strip_gender_marker(text: str) -> str:
+    if not text:
+        return text
+    return re.sub(r"\s{2,}", " ", _GENDER_MARKER_RE.sub("", text)).strip()
 
 
 def latex_escape(text: str) -> str:
@@ -160,19 +223,9 @@ def _colon_break(escaped_text: str) -> str:
     return f"{before.strip()} \\\\ {after.strip()}"
 
 
-def load_profile() -> dict:
-    if not PROFILE_PATH.exists():
-        raise RuntimeError(
-            f"{PROFILE_PATH.name} not found. Copy {PROFILE_EXAMPLE_PATH.name} to "
-            f"{PROFILE_PATH.name} and fill in your real (gitignored) details."
-        )
-    return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-
-
 def get_job(job_id: int) -> dict:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn = db.connect_db()
+    row = conn.execute("SELECT * FROM jobs_full WHERE id=?", (job_id,)).fetchone()
     conn.close()
     if not row:
         raise ValueError(f"job {job_id} not found")
@@ -228,13 +281,14 @@ def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
     real content that should fill the detail-bullet budget when nothing
     more relevant is available, ranked after anything that does match."""
     lower = (jtext or "").lower()
+    kw_weights = cv_bank.keyword_weights()
     scored = []
     for b in bullets:
         hay = " ".join([
             b.get("category", ""), " ".join(b.get("skill_tags", [])),
             b.get("jd_keyword_notes", ""), cv_bank.bullet_text(b),
         ]).lower()
-        s = sum(cv_bank.KEYWORDS_WEIGHTED.get(kw, 3) for kw in cv_bank.KEYWORDS_WEIGHTED if kw in hay and kw in lower)
+        s = sum(kw_weights.get(kw, 3) for kw in kw_weights if kw in hay and kw in lower)
         scored.append({**b, "match_score": s})
     scored.sort(key=lambda b: (
         -b["match_score"],
@@ -244,22 +298,69 @@ def _rank_bullets_with_fallback(bullets: list, jtext: str) -> list:
     return scored
 
 
-def llm_recommend_bullets(job: dict, timeline: list):
+def _position_recency_tenure_hint(period: str) -> str:
+    """Best-effort recency/tenure gloss for the LLM prompt, computed from
+    the CSV's free-text period string ('2025–present', '2023–2024',
+    '2018') -- gives the model concrete numbers instead of making it infer
+    "how recent" / "how short" from the raw string itself."""
+    if not period:
+        return ""
+    years = [int(y) for y in re.findall(r"\d{4}", period)]
+    if not years:
+        return ""
+    is_present = "present" in period.lower()
+    now = datetime.now().year
+    end_year = now if is_present else years[-1]
+    start_year = years[0]
+    age = max(now - end_year, 0)
+    tenure = max(end_year - start_year, 0) if len(years) > 1 else 0
+    recency = "current position" if is_present else (
+        f"ended {age} year{'s' if age != 1 else ''} ago" if age else "ended this year")
+    tenure_str = f"~{tenure} year{'s' if tenure != 1 else ''} tenure" if tenure else "under 1 year tenure"
+    return f"{recency}, {tenure_str}"
+
+
+def llm_recommend_bullets(job: dict, timeline: list, on_progress=None):
     """Ask the LLM to pick which real bullets go into the CV for this
-    specific job -- the target density Richard described (recent/relevant
-    roles get more detail, minor roles get just a summary) is passed as
-    guidance, not a hard rule, so the LLM can use judgment per job rather
-    than a rigid per-employer count. Returns {period: {...}} or None on
-    the stub backend / any failure, in which case the caller falls back
-    to the algorithmic POSITION_BULLET_TARGETS system below."""
-    if os.environ.get("LLM_BACKEND", "stub") == "stub":
+    specific job, AND how to place each position (full entry vs. the
+    compact "Earlier" list) -- the target density Richard described
+    (recent/relevant roles get more detail, minor roles get just a
+    summary) is passed as guidance, not a hard rule, so the LLM can use
+    judgment per job rather than a rigid per-employer count. Returns
+    {period: {...}} or None on the stub backend / any failure / the
+    "rule" generation_mode(), in which case the caller falls back to the
+    algorithmic position_bullet_targets()/EARLIER_SCORE_THRESHOLD system
+    below."""
+    if profile_mod.llm_config()["llm_backend"] == "stub" or generation_mode() == "rule":
         return None
 
+    bullet_targets = position_bullet_targets()
+    tier_guidance = priority_tiers()
     blocks = []
     for pos in timeline:
-        lines = [f"Position: {pos['employer']} — {pos['position_title']} ({pos['period']})"]
+        hint = _position_recency_tenure_hint(pos["period"])
+        header = f"Position: {pos['employer']} — {pos['position_title']} ({pos['period']})"
+        if hint:
+            header += f"  [{hint}]"
+        target = bullet_targets.get(position_key(pos["employer"], pos["position_title"]), {})
+        # Human-supplied calibration, not re-derived from recency/keywords --
+        # e.g. an older role the profile owner considers a reliably strong
+        # fit shouldn't get bumped to "earlier" just for being older. A
+        # per-position "priority_note" overrides the tier's generic
+        # sentence when this position needs its own nuance.
+        note = target.get("priority_note") or tier_guidance.get(target.get("priority_tier"))
+        if note:
+            header += f"\n  Priority guidance: {note}"
+        lines = [header]
         for b in pos["bullets"]:
-            lines.append(f"  [{b['id']}] {cv_bank.bullet_text(b)}")
+            # Surface the bullet bank's own Category/Anchor metadata --
+            # without it the LLM was judging relevance from bullet prose
+            # alone, blind to the structured signal Richard already put
+            # in the CSV. ★ marks the position's single always-include
+            # bullet (see cv_bank.py's "anchor" field).
+            tag = f" ({b['category']})" if b.get("category") else ""
+            anchor_mark = " ★" if b.get("anchor") else ""
+            lines.append(f"  [{b['id']}]{anchor_mark}{tag} {cv_bank.bullet_text(b)}")
         blocks.append("\n".join(lines))
 
     prompt = _load_prompt("recommend_bullets").safe_substitute(
@@ -269,7 +370,7 @@ def llm_recommend_bullets(job: dict, timeline: list):
     )
 
     try:
-        raw = _call_llm(prompt, max_tokens=1500)
+        raw = _call_llm(prompt, max_tokens=1500, on_progress=on_progress)
         raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
         data = json.loads(raw)
@@ -279,21 +380,34 @@ def llm_recommend_bullets(job: dict, timeline: list):
 
 
 def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_droppable: bool = False,
-                           llm_recommendation: dict = None, excluded_ids: set = None,
-                           bullets: list = None):
+                           llm_recommendation: dict = None, llm_placement: dict = None,
+                           excluded_ids: set = None, bullets: list = None):
     """Every real position from the CSV career timeline, in chronological
     order (most recent first) -- not filtered down to whichever employers
     happen to score well against this job. Each position always shows its
     one-line summary. Detail-bullet selection prefers `llm_recommendation`
     (see llm_recommend_bullets) when given; otherwise falls back to a
-    fixed (min, max) target per position (POSITION_BULLET_TARGETS),
+    fixed (min, max) target per position (position_bullet_targets()),
     matching the density of Richard's own saved CVs. `trim_level` and
     `drop_droppable` only apply to the fallback path (the shrink-to-fit
     retry loop degrades to it if the LLM's first pass doesn't fit).
-    `bullets` should be one language's store (cv_bank.build_bullet_store(
-    lang=...)) -- defaults to English if not given, so this stays
-    backward-compatible for any caller that hasn't been updated."""
+
+    `llm_placement` (period -> "full"/"earlier") is deliberately a
+    SEPARATE parameter from `llm_recommendation`, and the caller keeps
+    passing it on every fit-retry attempt even once it stops passing
+    `llm_recommendation` (see generate_for_job): which position gets a
+    full entry vs. a one-line "Earlier" mention is a bigger, more
+    considered call than which bullets fill it, so an overflowing page
+    should degrade to the algorithmic budget system for bullet counts
+    without also throwing out the LLM's placement reasoning.
+
+    `bullets` should be the active profile's store (cv_bank.build_bullet_store())
+    -- defaults to loading it fresh if not given, so this stays usable for
+    any caller that doesn't already have a store handy."""
     timeline = cv_bank.build_position_timeline(bullets)
+    bullet_targets = position_bullet_targets()  # resolved once, not once per position
+    bullet_pins = pinned_bullets()
+    mode = generation_mode()  # resolved once -- see its docstring for the "rule"/"hybrid"/"llm" bands
 
     # relevance rank per position = best keyword match among its own bullets
     # (used for intro generation, and by the fallback path to pick WHICH
@@ -317,13 +431,14 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
     }
 
     groups = []
-    for pos in timeline:  # chronological order for the actual rendered CV
+    for chron_idx, pos in enumerate(timeline):  # chronological order, most recent first
         pos_key = (pos["employer"], pos["position_title"], pos["period"])
         rank = rank_by_position[pos_key]
         pos_score = score_by_position[pos_key]
         bullets_by_id = {b["id"]: b for b in pos["bullets"]}
         rec = llm_recommendation.get(pos["period"]) if llm_recommendation else None
         excluded = excluded_ids or set()
+        target = bullet_targets.get(position_key(pos["employer"], pos["position_title"]), DEFAULT_BULLET_TARGET)
 
         if rec is not None:
             summary_bullet = bullets_by_id.get(rec.get("summary_bullet_id")) or \
@@ -331,6 +446,11 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
             summary_text = cv_bank.bullet_text(summary_bullet) if summary_bullet else pos["summary_text"]
             detail_texts, detail_texts_raw, detail_ids = [], [], []
             for bid in rec.get("detail_bullet_ids", []):
+                # target["max"] is a hard ceiling, not just prompt guidance
+                # the LLM might overshoot -- stop taking picks once hit,
+                # same as the algorithmic fallback path below always did.
+                if len(detail_texts) >= target["max"]:
+                    break
                 b = bullets_by_id.get(bid)  # never invent -- skip any ID the LLM hallucinated
                 if not b or b is summary_bullet or bid in excluded:
                     continue
@@ -339,9 +459,13 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
                 if text:
                     detail_texts.append(text)
                     detail_texts_raw.append(raw)
-                    detail_ids.append((bid, cv_bank.score_bullets(jtext, [b])[0]["match_score"] if b else 0))
+                    # score_bullets() only returns a bullet that scores > 0 or
+                    # is anchored -- a zero-score, non-anchored bullet (a
+                    # valid LLM pick, just one with no keyword overlap) comes
+                    # back as an empty list, not a 0.
+                    _scored = cv_bank.score_bullets(jtext, [b])
+                    detail_ids.append((bid, _scored[0]["match_score"] if _scored else 0))
         else:
-            target = POSITION_BULLET_TARGETS.get(pos["period"], DEFAULT_BULLET_TARGET)
             if drop_droppable and target.get("droppable"):
                 continue
             budget = max(target["min"], target["max"] - trim_level)
@@ -360,30 +484,116 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
                     detail_texts_raw.append(raw)
                     detail_ids.append((b["id"], b.get("match_score", 0)))
 
-        if pos["period"] == HPC_PINNED_BULLET["period"] and _is_hpc_relevant_job(jtext):
-            pinned = bullets_by_id.get(HPC_PINNED_BULLET["bullet_id"])
-            if pinned and HPC_PINNED_BULLET["bullet_id"] not in excluded:
+        this_pos_key = position_key(pos["employer"], pos["position_title"])
+        jtext_lower = (jtext or "").lower()
+        for pin in bullet_pins:
+            if pin.get("position_key") != this_pos_key:
+                continue
+            if not any(kw in jtext_lower for kw in pin.get("trigger_keywords", [])):
+                continue
+            bid = pin.get("bullet_id")
+            pinned = bullets_by_id.get(bid)
+            if pinned and bid not in excluded:
                 raw = pick_variant_text(pinned, jtext)
                 text = latex_escape(raw)
                 if text and text not in detail_texts:
                     detail_texts.insert(0, text)
                     detail_texts_raw.insert(0, raw)
-                    detail_ids.insert(0, (HPC_PINNED_BULLET["bullet_id"], 999))  # never the "weakest" pick
+                    detail_ids.insert(0, (bid, 999))  # never the "weakest" pick
+
+        # Full-entry vs. "Earlier" placement: prefer the LLM's own reasoned
+        # call (it weighs relevance/recency/tenure together per job, see
+        # recommend_bullets.txt) when the recommendation gave one; fall
+        # back to the older pure keyword-score threshold only when there's
+        # no LLM placement to use (stub backend, or a failed call). Looked
+        # up from `llm_placement`, NOT `rec`/`llm_recommendation` -- the
+        # caller keeps `llm_placement` populated across every fit-retry
+        # attempt even after it stops passing `llm_recommendation` for
+        # bullet selection, so an overflowing page doesn't also throw
+        # away the LLM's placement reasoning (see build_position_groups's
+        # docstring and generate_for_job).
+        placement_rec = llm_placement.get(pos["period"]) if llm_placement else None
+        pos_placement = placement_rec.get("placement") if placement_rec else None
+        if pos_placement not in ("full", "earlier"):
+            pos_placement = None
+        if pos_placement is not None:
+            is_earlier = pos_placement == "earlier"
+        else:
+            is_earlier = pos_score < target.get("earlier_threshold", EARLIER_SCORE_THRESHOLD)
+
+        # Priority-tier safety net: an "anchor"/"core" position is the
+        # profile owner's own explicit calibration that it's a reliably
+        # strong fit whenever genuinely relevant (domain.json's
+        # priority_tiers/priority_tier -- also passed to the LLM as
+        # "Priority guidance" text in recommend_bullets.txt). A single
+        # LLM placement call doesn't reliably weigh that subtle a hint
+        # against the rest of the prompt -- so when the LLM says "earlier"
+        # for one of these positions but this job's own keyword evidence
+        # against it already clears its earlier_threshold (real, objective
+        # relevance, not just recency), trust the human calibration +
+        # evidence over that one call's compliance and keep it full. Off
+        # in "llm" generation_mode() -- that band means the profile owner
+        # wants the model's own call trusted as-is, guardrail included.
+        if (is_earlier and pos_placement == "earlier" and mode != "llm"
+                and target.get("priority_tier") in ("anchor", "core")
+                and pos_score >= target.get("earlier_threshold", EARLIER_SCORE_THRESHOLD)):
+            is_earlier = False
+
+        final_earlier = chron_idx >= EARLIER_PROTECTED_RECENT_COUNT and is_earlier
+
+        # Safety net: the LLM sometimes places a position "full" but still
+        # returns zero detail_bullet_ids (e.g. treating the bullet it used
+        # as the summary as if that alone satisfied the pick) -- rather
+        # than ship a bare, single-bullet "full" entry, fall back to the
+        # algorithmic top picks so a compliance slip on the LLM's part
+        # doesn't produce a visibly broken CV.
+        if rec is not None and not final_earlier and not detail_texts:
+            budget = max(1, target.get("max", DEFAULT_BULLET_TARGET["max"]))
+            for b in _rank_bullets_with_fallback(pos["bullets"], jtext):
+                if b is summary_bullet or b["id"] in excluded:
+                    continue
+                if len(detail_texts) >= budget:
+                    break
+                raw = pick_variant_text(b, jtext)
+                text = latex_escape(raw)
+                if text:
+                    detail_texts.append(text)
+                    detail_texts_raw.append(raw)
+                    detail_ids.append((b["id"], b.get("match_score", 0)))
 
         groups.append({
             "employer": latex_escape(pos["employer"]),
             "employer_raw": pos["employer"],
             "position_title": latex_escape(pos["position_title"]),
             "period": latex_escape(pos["period"]),
+            "location": latex_escape(pos.get("location", "")),
             "summary": latex_escape(summary_text),
             "summary_raw": summary_text,
             "bullets": detail_texts,
             "bullets_raw": detail_texts_raw,
             "detail_bullet_scores": detail_ids,  # [(bullet_id, match_score), ...] -- for the fit-retry loop's weakest-bullet drop
             "relevance_rank": rank,
-            "earlier": pos_score < EARLIER_SCORE_THRESHOLD,  # dynamic per job -- see EARLIER_SCORE_THRESHOLD
+            "placement_source": "llm" if pos_placement is not None else "score_threshold",
+            "placement_reasoning": placement_rec.get("reasoning") if placement_rec else None,
+            # dynamic per job -- but never the most recent
+            # EARLIER_PROTECTED_RECENT_COUNT positions, regardless of
+            # placement: a low keyword-overlap score (or a borderline LLM
+            # call) on the CURRENT job just means the job posting text
+            # didn't happen to repeat much CV jargon, not that the
+            # position itself is stale.
+            "earlier": final_earlier,
         })
     return groups
+
+
+def _display_skill_name(kw: str) -> str:
+    """Display-only capitalization for cv_bank.keyword_weights() entries
+    (all lowercase internally, for matching) -- acronyms and official
+    stylizations that plain .title() would get wrong (domain.json's
+    "skill_display_overrides", e.g. "hpc" -> "HPC"). Anything not listed
+    there just falls back to .title() (e.g. "linux" -> "Linux")."""
+    overrides = profile_mod.load_domain_config().get("skill_display_overrides", {})
+    return overrides.get(kw, kw.title())
 
 
 def _skill_redundant_with_label(skill: str, label: str) -> bool:
@@ -401,58 +611,131 @@ def build_skill_categories(bullets: list) -> list:
 
     categories = []
     used = set()
-    for label, keywords in SKILL_CATEGORIES:
+    for label, keywords in skill_categories_config():
         matched = [kw for kw in keywords if kw in matched_tags]
         used.update(matched)  # accounted for even if dropped below as redundant -- must not leak into "Other"
         items = [kw for kw in matched if not _skill_redundant_with_label(kw, label)]
         if items:
-            categories.append({"label": latex_escape(label), "skills": [latex_escape(i) for i in items]})
+            categories.append({"label": latex_escape(label), "skills": [latex_escape(_display_skill_name(i)) for i in items]})
     # only show leftover tags that are real recognized tech keywords --
     # the CSV's "Core Skill Tags" column also carries internal
     # classification words (e.g. "ownership", "proxies") never meant to
     # be printed as if they were skills
-    leftover = sorted((matched_tags - used) & set(cv_bank.KEYWORDS_WEIGHTED))
+    leftover = sorted((matched_tags - used) & set(cv_bank.keyword_weights()))
     if leftover:
-        categories.append({"label": "Other", "skills": [latex_escape(i) for i in leftover[:8]]})
+        other_label = "Sonstiges" if _active_lang() == "de" else "Other"
+        categories.append({"label": other_label, "skills": [latex_escape(_display_skill_name(i)) for i in leftover[:8]]})
     return categories
 
 
-def _call_llm(prompt: str, max_tokens: int = 200) -> str:
-    """Shared backend dispatch for generate_intro/generate_cover_letter.
-    Returns the raw (un-escaped) model text, or raises on failure --
-    callers fall back to a template on any exception."""
-    backend = os.environ.get("LLM_BACKEND", "stub")
+def _call_llm(prompt: str, max_tokens: int = 200, on_progress=None) -> str:
+    """Shared backend dispatch for llm_recommend_bullets/generate_intro/
+    generate_cover_letter. Returns the raw (un-escaped) model text, or
+    raises on failure -- callers fall back to a template on any exception.
+
+    `on_progress`, if given, is called with an incremental token count
+    (a delta, not a running total -- callers accumulate) as the response
+    arrives. Ollama streams token-by-token so this is a real live signal
+    that data is actually moving, not just a stalled connection; the
+    anthropic/openai backends aren't streamed here, so they report their
+    whole response as one lump delta once it lands."""
+    cfg = profile_mod.llm_config()
+    backend = cfg["llm_backend"]
     if backend == "anthropic":
         import anthropic
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=cfg["anthropic_api_key"])
         msg = client.messages.create(
-            model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+            model=cfg["anthropic_model"],
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return msg.content[0].text.strip()
+        text = msg.content[0].text.strip()
+        if on_progress:
+            on_progress(len(text.split()))
+        return text
     if backend == "openai":
         from openai import OpenAI
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        client = OpenAI(api_key=cfg["openai_api_key"])
         resp = client.chat.completions.create(
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            model=cfg["openai_model"],
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.choices[0].message.content.strip()
+        text = resp.choices[0].message.content
+        if not text:
+            raise RuntimeError(f"openai returned no answer text (finish_reason={resp.choices[0].finish_reason!r})")
+        text = text.strip()
+        if on_progress:
+            on_progress(len(text.split()))
+        return text
+    if backend == "custom":
+        # Any OpenAI-compatible endpoint -- self-hosted, a proxy, a
+        # third-party provider -- base_url/key/model are all freeform,
+        # user-supplied settings (settings page), not tied to one provider.
+        # Raw HTTP via llm_plugin.custom_chat_completion(), deliberately
+        # not the `openai` package -- see that function's docstring: it's
+        # just a wrapper around this same JSON-over-HTTP contract, and
+        # importing it to reach a non-OpenAI endpoint meant a missing
+        # `openai` pip package broke this backend with a confusing,
+        # wrong-provider error.
+        #
+        # A reasoning model spends tokens on an internal chain-of-thought
+        # (returned separately as message.reasoning_content, not part of
+        # this response's "content" field) before writing the visible
+        # answer -- without headroom it can get cut off entirely mid-
+        # thought (finish_reason="length", content=None), which is what
+        # empirically happened here even at max_tokens+300 on a complex
+        # prompt. Tried the usual ways to just turn reasoning off for a
+        # request instead (extra_body enable_thinking=False,
+        # reasoning_effort="low", a "/no_think" suffix in the prompt) --
+        # this particular server/proxy honored none of them, still
+        # returning a full reasoning_content every time. So: give it
+        # room instead. "Min. tokens per response" (settings page) is a
+        # per-call FLOOR, not an addition -- effectively "reasoning
+        # budget," since local/self-hosted use has no per-token cost to
+        # weigh against reliability. Callers still fall back to their
+        # own template/algorithmic path on the RuntimeError below if
+        # even that isn't enough for a given call.
+        import llm_plugin
+        data = llm_plugin.custom_chat_completion(
+            [{"role": "user", "content": prompt}],
+            max(max_tokens, cfg["custom_min_tokens"]), cfg,
+        )
+        choice = data["choices"][0]
+        text = choice.get("message", {}).get("content")
+        if not text:
+            raise RuntimeError(f"custom backend returned no answer text (finish_reason={choice.get('finish_reason')!r}) "
+                                f"-- if this is a reasoning model, try raising \"Min. tokens per response\" in Settings.")
+        text = text.strip()
+        if on_progress:
+            on_progress(len(text.split()))
+        return text
     if backend == "ollama":
         import requests as req
-        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        model = os.environ.get("OLLAMA_MODEL", "llama3.2")
+        host = cfg["ollama_host"]
+        model = cfg["ollama_model"]
+        timeout = cfg["ollama_timeout"]
         resp = req.post(f"{host}/api/generate",
-                         json={"model": model, "prompt": prompt, "stream": False},
-                         timeout=int(os.environ.get("OLLAMA_TIMEOUT", 180)))
+                         json={"model": model, "prompt": prompt, "stream": True},
+                         timeout=timeout, stream=True)
         resp.raise_for_status()
-        return resp.json().get("response", "").strip()
+        pieces = []
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            chunk = json.loads(line)
+            piece = chunk.get("response", "")
+            if piece:
+                pieces.append(piece)
+                if on_progress:
+                    on_progress(1)  # one streamed chunk ~= one token
+            if chunk.get("done"):
+                break
+        return "".join(pieces).strip()
     raise ValueError(f"no real LLM for backend={backend!r}")
 
 
-LANGUAGE_NAMES = {"en": "English", "de": "German"}  # for the $language prompt substitution
+LANGUAGE_NAMES = {"en": "English", "de": "Deutsch"}  # native self-name -- the prompt text itself is in that language too
 
 _DEFAULT_OPEN_QUESTION = {
     "en": ("I'd welcome the chance to talk through how that experience applies here -- "
@@ -469,31 +752,35 @@ _COVER_LETTER_WRAPPER = {
 }
 
 
-def generate_cover_letter(job: dict, groups: list, profile: dict, lang: str = "en") -> str:
-    """Fixed template (guaranteed shape/reliability) with two small LLM-
-    filled gaps -- a pitch sentence and an open question -- rather than
-    asking the model to compose a whole letter freeform. A smaller/local
-    model (e.g. Ollama+Mistral) is much more reliable at one focused
-    sentence at a time than at holding together a whole coherent letter;
-    each gap also degrades independently (a bad/missing pitch sentence
-    doesn't cost the question, and vice versa) instead of an all-or-
-    nothing fallback to a generic template on any failure. `lang` picks
-    the fixed wrapper text (greeting/opening/signoff) and instructs the
-    LLM to write the pitch/question in that language too -- the achievement
-    bullets it draws from already come from that language's bullet bank
-    (see generate_for_job), so the whole letter stays one language."""
+def generate_cover_letter(job: dict, groups: list, profile: dict, on_progress=None) -> str:
+    """Fixed template (guaranteed shape/reliability) with three small LLM-
+    filled paragraph-sized gaps -- OPENING/BODY/CLOSING, roughly 3/4/3
+    sentences -- rather than asking the model to compose a whole letter
+    freeform. A smaller/local model (e.g. Ollama) is much more reliable at
+    one focused block at a time than at holding together a whole coherent
+    letter; each gap also degrades independently (a bad/missing block
+    doesn't cost the others) instead of an all-or-nothing fallback to a
+    generic template on any failure. Language is a property of the active
+    profile (see _active_lang), not a per-call choice -- the achievement
+    bullets it draws from already come from that profile's own bullet
+    bank (see generate_for_job), so the whole letter stays one language."""
+    lang = _active_lang()
     wrapper = _COVER_LETTER_WRAPPER.get(lang, _COVER_LETTER_WRAPPER["en"])
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
     top = by_relevance[:2]
     company = job.get("company") or "your team"
     title = job.get("title") or "this role"
     name = profile.get("name", "")
-    fallback_highlight = top[0]["summary_raw"] if top else ""
 
-    pitch_sentence = fallback_highlight
-    open_question = _DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"])
+    # factual fallbacks -- used whole-cloth if the LLM call fails entirely,
+    # or per-block if only that block's regex match comes up empty
+    fallback_opening = f"{wrapper['opening'].format(title=title)}".strip()
+    fallback_body = top[0]["summary_raw"] if top else ""
+    fallback_closing = _DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"])
 
-    if os.environ.get("LLM_BACKEND", "stub") != "stub":
+    opening, body, closing = fallback_opening, fallback_body, fallback_closing
+
+    if profile_mod.llm_config()["llm_backend"] != "stub":
         achievements = "\n".join(
             ["- " + g["summary_raw"] for g in top] +
             ["- " + b for g in top for b in g["bullets_raw"][:2]]
@@ -505,31 +792,44 @@ def generate_cover_letter(job: dict, groups: list, profile: dict, lang: str = "e
         )
 
         try:
-            raw = _call_llm(prompt, max_tokens=200)
-            pitch_match = re.search(r"PITCH:\s*(.+)", raw)
-            question_match = re.search(r"QUESTION:\s*(.+)", raw)
-            if pitch_match and pitch_match.group(1).strip():
-                pitch_sentence = pitch_match.group(1).strip()
-            if question_match and question_match.group(1).strip():
-                open_question = question_match.group(1).strip()
+            raw = _call_llm(prompt, max_tokens=500, on_progress=on_progress)
+            opening_match = re.search(r"OPENING:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
+            body_match = re.search(r"BODY:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
+            closing_match = re.search(r"CLOSING:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
+            if opening_match and opening_match.group(1).strip():
+                opening = opening_match.group(1).strip()
+            if body_match and body_match.group(1).strip():
+                body = body_match.group(1).strip()
+            if closing_match and closing_match.group(1).strip():
+                closing = closing_match.group(1).strip()
         except Exception:
-            pass  # keep the factual fallback values for whichever gap(s) didn't fill
+            pass  # keep the factual fallback values for whichever block(s) didn't fill
 
     return (
         f"{wrapper['greeting'].format(company=company)}\n\n"
-        f"{wrapper['opening'].format(title=title)} {pitch_sentence}\n\n"
-        f"{open_question}\n\n"
+        f"{opening}\n\n"
+        f"{body}\n\n"
+        f"{closing}\n\n"
         f"{wrapper['signoff'].format(name=name)}"
     )
 
 
-def generate_intro(job: dict, groups: list, profile: dict, lang: str = "en") -> str:
+def generate_intro(job: dict, groups: list, profile: dict, on_progress=None) -> str:
     """One small LLM call for a factual intro paragraph, prompted to use
-    only the selected bullets/skills (which already come from `lang`'s
-    bullet bank, see generate_for_job) -- falls back to a template
-    sentence on the stub backend (default, no API calls)."""
-    backend = os.environ.get("LLM_BACKEND", "stub")
-    by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
+    only the selected bullets/skills (which already come from the active
+    profile's bullet bank, see generate_for_job) -- falls back to a
+    template sentence on the stub backend (default, no API calls)."""
+    backend = profile_mod.llm_config()["llm_backend"]
+    lang = _active_lang()
+    # Only ever draw from positions actually shown as full entries in the
+    # body -- groups sorted by pure keyword relevance_rank could otherwise
+    # surface a position's bullet here while build_position_groups placed
+    # that same position "earlier" (a separate, LLM-reasoned call weighing
+    # recency/tenure too, not just keyword overlap), producing an intro
+    # that name-drops or paraphrases a role the CV then buries as a
+    # one-line mention right below it.
+    full_by_relevance = sorted((g for g in groups if not g.get("earlier")), key=lambda g: g["relevance_rank"])
+    by_relevance = full_by_relevance or sorted(groups, key=lambda g: g["relevance_rank"])
     top_employers_raw = [g["employer_raw"] for g in by_relevance[:3]]
 
     if backend == "stub":
@@ -556,7 +856,7 @@ def generate_intro(job: dict, groups: list, profile: dict, lang: str = "en") -> 
     )
 
     try:
-        return latex_escape(_call_llm(prompt, max_tokens=200))
+        return latex_escape(_call_llm(prompt, max_tokens=200, on_progress=on_progress))
     except Exception:
         pass
 
@@ -565,85 +865,29 @@ def generate_intro(job: dict, groups: list, profile: dict, lang: str = "en") -> 
     return latex_escape(f"{base} with hands-on experience across {employers_txt}.")
 
 
-def render_tex(job: dict, profile: dict, groups: list,
-               skill_categories: list, intro: str,
-               page1_count: int = PAGE1_POSITION_COUNT,
-               jobgap_a: int = JOBGAP_MIN, jobgap_b: int = JOBGAP_MIN,
-               sidespace: int = 20, lang: str = "en") -> str:
-    page1_groups, page2_groups = groups[:page1_count], groups[page1_count:]
-    labels = SECTION_LABELS.get(lang, SECTION_LABELS["en"])
-
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH.parent)),
-        block_start_string=r"\BLOCK{", block_end_string="}",
-        variable_start_string=r"\VAR{", variable_end_string="}",
-        comment_start_string=r"\#{", comment_end_string="}",
-        trim_blocks=True, lstrip_blocks=True,
-        autoescape=False,
-    )
-    template = env.get_template(TEMPLATE_PATH.name)
-
-    photo_path = ""
-    raw_photo = profile.get("photo_path", "")
-    if raw_photo:
-        p = Path(raw_photo)
-        p = p if p.is_absolute() else (BASE / p)
-        if p.exists():
-            photo_path = str(p)
-
-    return template.render(
-        name=latex_escape(profile.get("name", "")),
-        title=latex_escape(job.get("title") or profile.get("default_title", "")),
-        location=latex_escape(profile.get("location", "")),
-        phone=latex_escape(profile.get("phone", "")),
-        email=latex_escape(profile.get("email", "")),
-        nationality=latex_escape(profile.get("nationality", "")),
-        links=[{"label": latex_escape(l["label"]), "url": latex_escape_url(l["url"])} for l in profile.get("links", [])],
-        photo_path=photo_path,
-        education=[{"school": _colon_break(latex_escape(e["school"])),
-                    "degree": _colon_break(latex_escape(e["degree"])), "year": latex_escape(e["year"])}
-                   for e in profile.get("education", [])],
-        certificates=[{"name": latex_escape(c["name"]), "id": latex_escape(c["id"]), "date": latex_escape(c["date"])}
-                      for c in profile.get("certificates", [])],
-        languages=[{"name": latex_escape(l["name"]), "level": latex_escape(l["level"])}
-                   for l in profile.get("languages", [])],
-        projects=[{"title": latex_escape(p["title"]), "period": latex_escape(p["period"]),
-                   "location": latex_escape(p["location"]), "summary": latex_escape(p["summary"])}
-                  for p in profile.get("projects", [])],
-        skill_categories=skill_categories,
-        page1_groups=page1_groups,
-        page2_groups=page2_groups,
-        intro=intro,
-        jobgap_a=jobgap_a,
-        jobgap_b=jobgap_b,
-        sidespace=sidespace,
-        labels=labels,
-    )
-
-
 def render_tex_single(job: dict, profile: dict, groups: list,
-                       skill_categories: list, intro: str, lang: str = "en") -> str:
+                       skill_categories: list, intro: str) -> str:
     """Single-column style: skills near the top, education/certificates at
     the bottom. Each position's "earlier" flag (build_position_groups,
     driven by its own keyword relevance to THIS job vs
     EARLIER_SCORE_THRESHOLD -- not a fixed property of the position) sends
     it to a compact one-line list at the end of the experience section
     instead of a full jobheader+bullets entry -- everything else stays
-    chronological within its own group, matching the two-column
-    template's ordering."""
-    labels = SECTION_LABELS.get(lang, SECTION_LABELS["en"])
+    chronological within its own group."""
+    labels = SECTION_LABELS.get(_active_lang(), SECTION_LABELS["en"])
     full_groups = [g for g in groups if not g.get("earlier")]
     earlier_groups = [g for g in groups if g.get("earlier")]
 
+    template_path = profile_mod.template_path()
     env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH_SINGLE.parent)),
+        loader=jinja2.FileSystemLoader(str(template_path.parent)),
         block_start_string=r"\BLOCK{", block_end_string="}",
         variable_start_string=r"\VAR{", variable_end_string="}",
         comment_start_string=r"\#{", comment_end_string="}",
         trim_blocks=True, lstrip_blocks=True,
         autoescape=False,
     )
-    template = env.get_template(TEMPLATE_PATH_SINGLE.name)
+    template = env.get_template(template_path.name)
 
     languages = [{"name": latex_escape(l["name"]), "level": latex_escape(l["level"])}
                  for l in profile.get("languages", [])]
@@ -653,9 +897,24 @@ def render_tex_single(job: dict, profile: dict, groups: list,
     visa = latex_escape(profile.get("visa", ""))
     nationality_line = f"{nationality}, {visa}" if visa else nationality
 
+    # Optional -- omitted entirely (no error) if unset or the file doesn't
+    # exist. A relative path resolves against the profile's own directory
+    # (not the repo root), so a photo travels with the profile like
+    # everything else it owns.
+    photo_path = ""
+    raw_photo = profile.get("photo_path", "")
+    if raw_photo:
+        p = Path(raw_photo)
+        if not p.is_absolute():
+            profile_dir = profile_mod.active_profile_dir()
+            p = (profile_dir / p) if profile_dir else (BASE / p)
+        if p.exists():
+            photo_path = str(p)
+
     return template.render(
+        photo_path=photo_path,
         name=latex_escape(profile.get("name", "")),
-        title=latex_escape(job.get("title") or profile.get("default_title", "")),
+        title=latex_escape(strip_gender_marker(job.get("title")) or profile.get("default_title", "")),
         location=latex_escape(profile.get("location", "")),
         phone=latex_escape(profile.get("phone", "")),
         email=latex_escape(profile.get("email", "")),
@@ -726,63 +985,77 @@ def slugify(text: str) -> str:
     return text or "job"
 
 
-def generate_for_job(job_id: int, lang: str = "en", style: str = "sidebar") -> dict:
-    """Generates a CV entirely in one language: bullets come from
-    bullet_bank_<lang>.csv (cv_bank.build_bullet_store(lang=lang), never
-    mixed with another language), the LLM is instructed to write the
-    intro/cover-letter pitch in that language, and the sidebar section
-    headers switch too (SECTION_LABELS) -- no English/German mixing
-    within one generated CV. `style`: "sidebar" (default, two-column with
-    a colored sidebar) or "single" (one column, skills near the top,
-    education/certificates at the bottom, older/thin positions collapsed
-    into a compact "Earlier" list -- see render_tex_single)."""
-    profile = load_profile()
+def generate_for_job(job_id: int, on_progress=None) -> dict:
+    """Generates a CV entirely in the active profile's language: bullets
+    come from that profile's own bullet_bank.csv (cv_bank.build_bullet_store,
+    never mixed with another language), the LLM is instructed to write the
+    intro/cover-letter text in that language, and the section headers
+    switch too (SECTION_LABELS, via _active_lang) -- no English/German
+    mixing within one generated CV. Layout is always the single-column
+    template (render_tex_single) -- each profile owns its own
+    template.tex.jinja (profile.template_path()).
+
+    `on_progress`, if given, is called with a running total token count
+    across every LLM call this generation makes (bullet recommendation,
+    intro, cover letter) -- a live signal that the model is actually
+    streaming data back, not just hung (see _call_llm)."""
+    token_total = 0
+
+    def _bump(delta):
+        nonlocal token_total
+        token_total += delta
+        if on_progress:
+            on_progress(token_total)
+
+    profile_data = profile_mod.load_profile()
     job = get_job(job_id)
     jtext = job_text(job)
-    bullets = cv_bank.build_bullet_store(lang=lang)
+    bullets = cv_bank.build_bullet_store()
 
     all_bullets_for_skills = cv_bank.dedupe_by_similarity_group(cv_bank.score_bullets(jtext, bullets))
     skill_categories = build_skill_categories(all_bullets_for_skills[:24])
 
     dir_name = f"{slugify(job.get('company'))}_{slugify(job.get('title'))}_{job_id}"
-    if lang != "en":
-        dir_name += f"_{lang}"  # keep English's existing path untouched; other languages get their own dir
-    if style != "sidebar":
-        dir_name += f"_{style}"
-    outdir = OUTPUT_DIR / dir_name
-    outdir.mkdir(parents=True, exist_ok=True)
-    tex_path = outdir / "cv.tex"
+    cv_outdir = profile_mod.generated_cv_dir() / dir_name
+    cv_outdir.mkdir(parents=True, exist_ok=True)
+    tex_path = cv_outdir / "cv.tex"
 
     timeline = cv_bank.build_position_timeline(bullets)
-    llm_recommendation = llm_recommend_bullets(job, timeline)  # None on stub backend / failure
+    llm_recommendation = llm_recommend_bullets(job, timeline, on_progress=_bump)  # None on stub backend / failure
+    if llm_recommendation:
+        print(f"[generate_cv] LLM placement reasoning for job {job_id} ({job.get('company')} -- {job.get('title')}):")
+        for period, rec in llm_recommendation.items():
+            print(f"  {period}: {rec.get('placement', '?')} -- {rec.get('reasoning', '(no reasoning given)')}")
 
     trim_level = 0
     drop_droppable = False
-    page1_count = PAGE1_POSITION_COUNT
     excluded_ids = set()
     weak_drop_count = 0
     attempts = []
     intro = None
 
     for attempt in range(1, MAX_FIT_ITERATIONS + 1):
-        # the LLM's picks get exactly one shot (attempt 1); if it doesn't
-        # fit, retries degrade to the algorithmic fixed-target system
-        # rather than trying to renegotiate the LLM's selection
+        # the LLM's bullet picks get exactly one shot (attempt 1); if it
+        # doesn't fit, retries degrade to the algorithmic fixed-target
+        # system for WHICH bullets to show rather than trying to
+        # renegotiate the LLM's selection. Its full/earlier PLACEMENT
+        # call is a separate, stickier decision -- stays in effect on
+        # every attempt (see build_position_groups's docstring) so a
+        # page-overflow retry doesn't quietly undo carefully-reasoned
+        # placement just because the bullet budget needed to shrink.
         use_llm = llm_recommendation if attempt == 1 else None
         groups = build_position_groups(job, jtext, trim_level=trim_level, drop_droppable=drop_droppable,
-                                        llm_recommendation=use_llm, excluded_ids=excluded_ids, bullets=bullets)
+                                        llm_recommendation=use_llm, llm_placement=llm_recommendation,
+                                        excluded_ids=excluded_ids, bullets=bullets)
         if intro is None:  # only generate once (short summary text, unaffected by bullet trimming) -- avoids repeat LLM calls across retries
-            intro = generate_intro(job, groups, profile, lang=lang)
-        if style == "single":
-            tex_content = render_tex_single(job, profile, groups, skill_categories, intro, lang=lang)
-        else:
-            tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count, lang=lang)
+            intro = generate_intro(job, groups, profile_data, on_progress=_bump)
+        tex_content = render_tex_single(job, profile_data, groups, skill_categories, intro)
         tex_path.write_text(tex_content, encoding="utf-8")
 
         result = compile_pdf(tex_path)
         attempts.append({"attempt": attempt, "used_llm_recommendation": use_llm is not None,
                           "trim_level": trim_level, "drop_droppable": drop_droppable,
-                          "page1_count": page1_count, "excluded_count": len(excluded_ids),
+                          "excluded_count": len(excluded_ids),
                           "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
 
         if not result["ok"]:
@@ -793,10 +1066,10 @@ def generate_for_job(job_id: int, lang: str = "en", style: str = "sidebar") -> d
         # On overflow, first drop the single weakest currently-included
         # bullet CV-wide (cheapest, most surgical cut -- one bullet, not a
         # whole position's budget), up to WEAK_DROP_CAP times. Once that's
-        # exhausted (or nothing left to rank), fall back to the blunter
-        # levers: shrink every position's budget toward its own floor, then
-        # drop the sole "droppable" position entirely, then rebalance the
-        # page1/page2 split as a last resort.
+        # exhausted (or nothing left to rank), fall back to shrinking every
+        # position's budget toward its own floor, then dropping the sole
+        # "droppable" position entirely. Once every lever is exhausted,
+        # further iterations would just re-render the same content.
         weakest = None
         if weak_drop_count < WEAK_DROP_CAP:
             weakest = min(
@@ -810,42 +1083,13 @@ def generate_for_job(job_id: int, lang: str = "en", style: str = "sidebar") -> d
             trim_level += 1
         elif not drop_droppable:
             drop_droppable = True
-        elif page1_count > 1:
-            page1_count -= 1
+        else:
+            break
 
-    # Content-trimming above only ever shrinks to fit. Once a clean 2-page
-    # fit is found, separately stretch each page's inter-entry spacing
-    # (independently, since one page may have more room than the other) up
-    # toward JOBGAP_MAX, so a page with room to spare looks intentionally
-    # filled rather than sparse. Any trial that breaks the fit is discarded.
-    if style == "sidebar" and result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0:
-        jobgap_a, jobgap_b = JOBGAP_MIN, JOBGAP_MIN
-        for key in ("jobgap_a", "jobgap_b"):
-            gap = JOBGAP_MIN
-            while gap + JOBGAP_STEP <= JOBGAP_MAX:
-                trial = gap + JOBGAP_STEP
-                kwargs = {"jobgap_a": jobgap_a, "jobgap_b": jobgap_b, key: trial}
-                tex_content = render_tex(job, profile, groups, skill_categories, intro,
-                                          page1_count=page1_count, lang=lang, **kwargs)
-                tex_path.write_text(tex_content, encoding="utf-8")
-                trial_result = compile_pdf(tex_path)
-                if trial_result["ok"] and trial_result["page_count"] == 2 and trial_result["overfull_vbox"] == 0:
-                    gap = trial
-                else:
-                    break
-            if key == "jobgap_a":
-                jobgap_a = gap
-            else:
-                jobgap_b = gap
-        tex_content = render_tex(job, profile, groups, skill_categories, intro, page1_count=page1_count,
-                                  jobgap_a=jobgap_a, jobgap_b=jobgap_b, lang=lang)
-        tex_path.write_text(tex_content, encoding="utf-8")
-        result = compile_pdf(tex_path)
-        attempts.append({"attempt": "spacing_fill", "jobgap_a": jobgap_a, "jobgap_b": jobgap_b,
-                          "page_count": result["page_count"], "overfull_vbox": result["overfull_vbox"]})
-
-    cover_letter_path = outdir / "cover_letter.txt"
-    cover_letter_path.write_text(generate_cover_letter(job, groups, profile, lang=lang), encoding="utf-8")
+    cover_letter_dir = profile_mod.generated_cover_letter_dir() / dir_name
+    cover_letter_dir.mkdir(parents=True, exist_ok=True)
+    cover_letter_path = cover_letter_dir / "cover_letter.txt"
+    cover_letter_path.write_text(generate_cover_letter(job, groups, profile_data, on_progress=_bump), encoding="utf-8")
 
     return {
         "ok": result["ok"],
