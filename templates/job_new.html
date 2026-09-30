@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Add Job — Job Assist{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-header fw-semibold"><i class="bi bi-plus-circle me-1"></i>Add a Job Posting Manually</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">For a posting the harvesters didn't pick up -- paste it in from
+          anywhere (LinkedIn, a company site, an email, ...). Saved with source "self", dated today; rating
+          and CV generation work on it exactly like any scraped job.</p>
+
+        {% if error %}
+        <div class="alert alert-danger py-2 px-3">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/jobs/new" accept-charset="UTF-8">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Job Title</label>
+            <input type="text" class="form-control" name="title" required autofocus
+                   value="{{ form.title if form else '' }}">
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Company</label>
+              <input type="text" class="form-control" name="company"
+                     value="{{ form.company if form else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Location</label>
+              <input type="text" class="form-control" name="location"
+                     placeholder="e.g. Berlin, Germany or Remote"
+                     value="{{ form.location if form else '' }}">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Job Description</label>
+            <textarea class="form-control" name="description" rows="16"
+                      placeholder="Paste the full posting text here">{{ form.description if form else '' }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Posting URL <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="url" class="form-control" name="url" placeholder="https://…"
+                   value="{{ form.url if form else '' }}">
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Create Job</button>
+          <a href="/jobs" class="btn btn-outline-secondary">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

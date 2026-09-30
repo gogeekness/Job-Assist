@@ -1,0 +1,15 @@
+I am researching salary ranges for a [YOUR TITLE] role. Help me think through this.
+
+Role details:
+- Title: [TITLE FROM JD]
+- City: [CITY]
+- Company type: [research institute / mid-size tech / enterprise / startup]
+- Years of experience: [X]
+- Key skills: [YOUR KEY SKILLS]
+
+Please provide:
+1. Realistic gross salary range for this profile, city, and year
+2. Any local factors affecting compensation (collective bargaining, cost of living, etc.)
+3. What benefits to negotiate beyond salary
+4. How to phrase salary expectations when asked directly
+5. Red lines — what's too low to accept for this profile

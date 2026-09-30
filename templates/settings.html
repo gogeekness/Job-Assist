@@ -84,33 +84,43 @@
 
         <form method="POST" action="/settings/cv_paths" class="mb-3" accept-charset="UTF-8">
           <p class="text-muted small mb-2">
-            These paths are machine-specific — override them here instead of relying on the
-            <code>LateX_Docs/</code> and <code>CVs_Job_Dos/</code> symlinks at the repo root.
-            Leave a field blank to keep the current default.
+            <code>profile.json</code> and the bullet bank below are always the source for CV
+            generation. Everything in this box is an <strong>optional, per-profile</strong> extra —
+            a link/path to old <code>.tex</code>/<code>.odt</code> CVs that, when turned on, only
+            ever adds a few extra Skills-section tags. It never contributes Experience bullets.
+            Switching profiles switches which archive (if any) is in play.
           </p>
           <div class="mb-2">
-            <label class="form-label small">Bullet-bank CSV path
+            <label class="form-label small">Bullet-bank CSV path <span class="text-muted">(owned by the active profile — edit via the profile switcher, not here)</span>
               {% if not bank_stats.csv_exists %}<span class="text-danger">— not found</span>{% endif %}
             </label>
-            <input type="text" name="csv_path" class="form-control form-control-sm font-monospace"
-                   placeholder="{{ bank_stats.csv_path }}">
+            <input type="text" class="form-control form-control-sm font-monospace" value="{{ bank_stats.csv_path }}" readonly disabled>
+          </div>
+
+          <div class="form-check mb-2">
+            <input type="checkbox" class="form-check-input" id="archive-toggle" name="include_tex_odt_archive"
+                   {% if bank_stats.archive_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="archive-toggle">
+              Pull extra Skills-tag signal from a <code>.tex</code>/<code>.odt</code> archive for this profile
+            </label>
           </div>
           <div class="mb-2">
-            <label class="form-label small">LaTeX CVs directory
+            <label class="form-label small">LaTeX CVs directory (link/path)
               {% if not bank_stats.tex_exists %}<span class="text-danger">— not found</span>{% endif %}
             </label>
             <input type="text" name="tex_dir" class="form-control form-control-sm font-monospace"
                    placeholder="{{ bank_stats.tex_dir }}">
           </div>
           <div class="mb-2">
-            <label class="form-label small">CV / cover-letter archive directory
+            <label class="form-label small">CV / cover-letter archive directory (link/path)
               {% if not bank_stats.odt_exists %}<span class="text-danger">— not found</span>{% endif %}
             </label>
             <input type="text" name="odt_dir" class="form-control form-control-sm font-monospace"
                    placeholder="{{ bank_stats.odt_dir }}">
           </div>
+          <p class="text-muted small mb-2">Leave a path field blank to keep its current value.</p>
           <button type="submit" class="btn btn-primary btn-sm">
-            <i class="bi bi-save me-1"></i>Save paths
+            <i class="bi bi-save me-1"></i>Save
           </button>
         </form>
 
@@ -130,22 +140,27 @@
       <div class="card-header fw-semibold"><i class="bi bi-robot me-1"></i>LLM Connection</div>
       <div class="card-body">
         <p class="mb-3">Current backend: <code>{{ llm_config.backend }}</code>
-          <span class="text-muted small">— takes effect immediately, no restart needed</span></p>
+          <span class="text-muted small">— saved on profile <strong>{{ active_profile }}</strong>,
+          takes effect immediately, no restart needed. Switching profiles switches which of these is
+          active.</span></p>
 
         <form method="POST" action="/settings/llm" id="llm-form" accept-charset="UTF-8">
           <div class="mb-3">
             <label class="form-label small fw-semibold">Backend</label>
             <select class="form-select form-select-sm" name="backend" id="llm-backend-select">
-              {% for b in ['stub','anthropic','openai','ollama'] %}
+              {% for b in ['stub','anthropic','openai','ollama','custom'] %}
               <option value="{{ b }}" {% if llm_config.backend==b %}selected{% endif %}>{{ b }}</option>
               {% endfor %}
             </select>
+            <div class="form-text">Only the selected backend's card below is actually used -- the
+              others just sit here ready in case you switch, they don't need to be empty.</div>
           </div>
 
           <div class="row g-3">
             <div class="col-12 col-md-6">
-              <div class="border rounded p-2 h-100">
-                <div class="fw-semibold small mb-1">Anthropic (external)</div>
+              <div class="border rounded p-2 h-100 {% if llm_config.backend=='anthropic' %}border-primary border-2{% endif %}">
+                <div class="fw-semibold small mb-1">Anthropic (external)
+                  {% if llm_config.backend=='anthropic' %}<span class="badge text-bg-primary">active</span>{% endif %}</div>
                 <label class="form-label small">API key
                   {% if llm_config.anthropic_key_set %}<span class="badge text-bg-success">configured</span>{% endif %}
                 </label>
@@ -157,8 +172,9 @@
               </div>
             </div>
             <div class="col-12 col-md-6">
-              <div class="border rounded p-2 h-100">
-                <div class="fw-semibold small mb-1">OpenAI (external)</div>
+              <div class="border rounded p-2 h-100 {% if llm_config.backend=='openai' %}border-primary border-2{% endif %}">
+                <div class="fw-semibold small mb-1">OpenAI (external)
+                  {% if llm_config.backend=='openai' %}<span class="badge text-bg-primary">active</span>{% endif %}</div>
                 <label class="form-label small">API key
                   {% if llm_config.openai_key_set %}<span class="badge text-bg-success">configured</span>{% endif %}
                 </label>
@@ -166,23 +182,54 @@
                        placeholder="{% if llm_config.openai_key_set %}•••• leave blank to keep{% else %}sk-…{% endif %}">
                 <label class="form-label small">Model</label>
                 <input type="text" class="form-control form-control-sm" name="openai_model"
-                       placeholder="{{ llm_config.openai_model }}">
+                       placeholder="{{ llm_config.openai_model }} -- e.g. gpt-4o-mini">
               </div>
             </div>
-            <div class="col-12">
-              <div class="border rounded p-2">
-                <div class="fw-semibold small mb-1">Ollama (local / LAN)</div>
-                <div class="row g-2">
-                  <div class="col-6">
-                    <label class="form-label small">Host</label>
-                    <input type="text" class="form-control form-control-sm" name="ollama_host"
-                           placeholder="{{ llm_config.ollama_host }}">
-                  </div>
-                  <div class="col-6">
-                    <label class="form-label small">Model</label>
-                    <input type="text" class="form-control form-control-sm" name="ollama_model"
-                           placeholder="{{ llm_config.ollama_model }}">
-                  </div>
+            <div class="col-12 col-md-6">
+              <div class="border rounded p-2 h-100 {% if llm_config.backend=='ollama' %}border-primary border-2{% endif %}">
+                <div class="fw-semibold small mb-1">Ollama (local / LAN)
+                  {% if llm_config.backend=='ollama' %}<span class="badge text-bg-primary">active</span>{% endif %}</div>
+                <label class="form-label small">Host</label>
+                <input type="text" class="form-control form-control-sm mb-2" name="ollama_host"
+                       placeholder="{{ llm_config.ollama_host }}">
+                <label class="form-label small">Model</label>
+                <input type="text" class="form-control form-control-sm" name="ollama_model"
+                       placeholder="{{ llm_config.ollama_model }} -- must be pulled on THIS host">
+                <div class="mt-2">
+                  <button type="button" class="btn btn-outline-secondary btn-sm" id="ollama-unload-btn">
+                    <i class="bi bi-gpu-card me-1"></i>Clear VRAM
+                    <span class="spinner-border spinner-border-sm ms-1 d-none" id="ollama-unload-spinner"></span>
+                  </button>
+                  <div class="form-text">Unloads everything Ollama has loaded on that host -- worth
+                    trying if a generation was unexpectedly slow. Can't reach an unrelated process
+                    also using that GPU.</div>
+                  <div id="ollama-unload-result" class="small mt-1"></div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-md-6">
+              <div class="border rounded p-2 h-100 {% if llm_config.backend=='custom' %}border-primary border-2{% endif %}">
+                <div class="fw-semibold small mb-1">Custom (any OpenAI-compatible endpoint)
+                  {% if llm_config.backend=='custom' %}<span class="badge text-bg-primary">active</span>{% endif %}</div>
+                <label class="form-label small">Base URL</label>
+                <input type="text" class="form-control form-control-sm mb-2" name="custom_base_url"
+                       placeholder="{{ llm_config.custom_base_url or 'http://host:port/v1 (no /chat/completions)' }}">
+                <label class="form-label small">API key
+                  {% if llm_config.custom_key_set %}<span class="badge text-bg-success">configured</span>{% endif %}
+                </label>
+                <input type="password" class="form-control form-control-sm mb-2" name="custom_key"
+                       placeholder="{% if llm_config.custom_key_set %}•••• leave blank to keep{% else %}sk-…{% endif %}">
+                <label class="form-label small">Model</label>
+                <input type="text" class="form-control form-control-sm mb-2" name="custom_model"
+                       placeholder="{{ llm_config.custom_model or 'model-id' }} -- from /v1/models">
+                <label class="form-label small">Min. tokens per response</label>
+                <input type="number" min="1" class="form-control form-control-sm" name="custom_min_tokens"
+                       placeholder="{{ llm_config.custom_min_tokens }}">
+                <div class="form-text mt-1">
+                  A <strong>reasoning model</strong> spends part of this budget "thinking" before it
+                  writes the real answer, invisibly to you -- too low a limit cuts it off with nothing
+                  usable. No reasoning-off flag was honored on a real test, so for local/free-token use,
+                  just raise this (4000-8000+) instead. Applies as a floor, not an addition.
                 </div>
               </div>
             </div>
@@ -198,6 +245,32 @@
             </button>
           </div>
           <div id="llm-test-result" class="small mt-2"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- CV generation balance -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header fw-semibold"><i class="bi bi-sliders me-1"></i>CV Generation Balance</div>
+      <div class="card-body">
+        <p class="mb-3 text-muted small">How much to trust the LLM's own placement/bullet-selection
+          judgment vs. your own configured rules (<code>domain.json</code>'s position targets and
+          priority tiers) — saved on profile <strong>{{ active_profile }}</strong>, takes effect
+          immediately, no restart needed.</p>
+        <form method="POST" action="/settings/generation" id="generation-form" accept-charset="UTF-8">
+          <div class="d-flex align-items-center gap-3 mb-1">
+            <input type="range" class="form-range" min="0" max="10" step="1"
+                   name="generation_balance" id="generation-balance-range"
+                   value="{{ generation_balance }}" style="max-width: 320px;">
+            <span class="score-pill" id="generation-balance-pill">—</span>
+          </div>
+          <div class="d-flex justify-content-between small text-muted mb-2" style="max-width: 320px;">
+            <span>Rule-based</span><span>Hybrid</span><span>LLM-led</span>
+          </div>
+          <div class="form-text mb-3" id="generation-balance-desc"></div>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i>Save</button>
         </form>
       </div>
     </div>
@@ -229,5 +302,43 @@ document.getElementById('llm-test-btn').addEventListener('click', function() {
       resultEl.className = 'small mt-2 text-danger';
     });
 });
+
+document.getElementById('ollama-unload-btn').addEventListener('click', function() {
+  const resultEl = document.getElementById('ollama-unload-result');
+  const spinner = document.getElementById('ollama-unload-spinner');
+  spinner.classList.remove('d-none');
+  resultEl.textContent = '';
+  fetch('/settings/llm/ollama/unload', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+      spinner.classList.add('d-none');
+      resultEl.textContent = (data.ok ? '✓ ' : '✗ ') + data.message;
+      resultEl.className = 'small mt-1 ' + (data.ok ? 'text-success' : 'text-danger');
+    })
+    .catch(e => {
+      spinner.classList.add('d-none');
+      resultEl.textContent = '✗ ' + e;
+      resultEl.className = 'small mt-1 text-danger';
+    });
+});
+
+const GENERATION_BANDS = [
+  {max: 2,  cls: 'mode-rule',   label: 'Rule-based',
+   desc: 'Skips the LLM call for placement entirely -- deterministic, uses only your position_bullet_targets/earlier_threshold config.'},
+  {max: 7,  cls: 'mode-hybrid', label: 'Hybrid (default)',
+   desc: "The LLM decides placement and bullet picks; your anchor/core priority-tier guardrail still overrides a contradicting call when this job's own keyword evidence is strong."},
+  {max: 10, cls: 'mode-llm',    label: 'LLM-led',
+   desc: "The LLM's placement call is trusted as-is, including when it disagrees with your priority-tier guardrail."},
+];
+function updateGenerationBalanceUI() {
+  const val = parseInt(document.getElementById('generation-balance-range').value, 10);
+  const band = GENERATION_BANDS.find(b => val <= b.max);
+  const pill = document.getElementById('generation-balance-pill');
+  pill.textContent = val + ' — ' + band.label;
+  pill.className = 'score-pill ' + band.cls;
+  document.getElementById('generation-balance-desc').textContent = band.desc;
+}
+document.getElementById('generation-balance-range').addEventListener('input', updateGenerationBalanceUI);
+updateGenerationBalanceUI();
 </script>
 {% endblock %}

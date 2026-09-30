@@ -14,6 +14,7 @@
 \usepackage{titlesec}
 \usepackage[T1]{fontenc}
 \usepackage{amssymb}
+\usepackage{graphicx}
 
 \IfFileExists{DejaVuSans.sty}{%
   \usepackage{DejaVuSans}%
@@ -27,22 +28,37 @@
 \definecolor{accent}{HTML}{2F6D92}
 \definecolor{darktext}{HTML}{1A1A1A}
 
-\newlength{\cvbuffersection}
-\setlength{\cvbuffersection}{9pt}
-\newlength{\cvbufferjob}
-\setlength{\cvbufferjob}{6pt}
+% Per-page-area spacing -- tune each independently. To fine-tune one
+% specific job's PDF, hand-edit its generated .tex (CV Review's
+% recompile textarea) and swap an individual \vspace{\jobgappageA} to
+% \jobgappageB (or vice versa) for whichever Experience entries actually
+% land on that CV's page 2 -- the template can't know that in advance
+% since it depends on how much content a given job pulls in.
+\newlength{\introspace}
+\setlength{\introspace}{9pt}    % header area: Profile + Skills
+\newlength{\jobgappageA}
+\setlength{\jobgappageA}{6pt}   % gap between Experience entries -- page 1 default
+\newlength{\jobgappageB}
+\setlength{\jobgappageB}{6pt}   % gap between Experience entries -- page 2 (hand-assign per job)
+\newlength{\outrospace}
+\setlength{\outrospace}{9pt}    % gap between Current Project and Education
 \newlength{\cvbuffercerts}
 \setlength{\cvbuffercerts}{0pt}
 
 \pagestyle{empty}
 \setlength{\parindent}{0pt}
+% Ragged-right (not fully justified) everywhere -- justification stretches
+% inter-word spacing to fill the line, which on a short wrapped line (e.g.
+% a long summation sentence wrapping to 2 lines) can open a visibly wide
+% gap between a couple of words. Standard for CVs anyway.
+\raggedright
 \color{darktext}
 
 \titleformat{\section}
   {\Large\bfseries\color{accent}}
   {}{0em}{}
   [\vspace{0pt}{\color{accent}\hrule height 1pt}\vspace{2pt}]
-\titlespacing*{\section}{0pt}{\cvbuffersection}{1pt}
+\titlespacing*{\section}{0pt}{9pt}{1pt}
 
 % #1 job title  #2 dates  #3 company/context line  #4 location
 \newcommand{\jobentry}[4]{%
@@ -53,20 +69,22 @@
     \end{minipage}%
 }
 
-% parbox (not makebox) so a long cell -- e.g. nationality + visa status --
-% wraps within its own column instead of overflowing text into the next
-% one; [t] top-aligns wrapped cells against their unwrapped neighbors.
+% Equal thirds, \makebox (not \parbox) -- keeps each cell's content on one
+% line and simply aligned within its box rather than wrapping. Relies on
+% profile.json's nationality/visa staying reasonably short (they don't need
+% to wrap, unlike the old "EU Blue card (Germany)" phrasing this was
+% originally built around).
 \newcommand{\IntroBlock}[6]{%
   \noindent
     \begin{minipage}[t]{\linewidth}
-      \normalsize
-    \parbox[t]{0.32\linewidth}{\raggedright\textbf{#1}}\hfill%
-    \parbox[t]{0.32\linewidth}{\centering\textbf{#2}}\hfill%
-    \parbox[t]{0.32\linewidth}{\raggedleft\textbf{#3}}
+    \normalsize
+    \makebox[0.33\linewidth][l]{\textbf{#1}}%
+    \makebox[0.33\linewidth][c]{\textbf{#2}}%
+    \makebox[0.33\linewidth][r]{\textbf{#3}}
 
-    \parbox[t]{0.32\linewidth}{\raggedright\textbf{#4}}\hfill%
-    \parbox[t]{0.32\linewidth}{\centering\textbf{#5}}\hfill%
-    \parbox[t]{0.32\linewidth}{\raggedleft\textbf{#6}}
+    \makebox[0.33\linewidth][l]{\textbf{#4}}%
+    \makebox[0.33\linewidth][c]{\textbf{#5}}%
+    \makebox[0.33\linewidth][r]{\textbf{#6}}
     \end{minipage}%
   }
 
@@ -75,6 +93,27 @@
 % ============================================================
 %  HEADER
 % ============================================================
+\BLOCK{if photo_path}
+\noindent
+\begin{minipage}[t]{0.76\linewidth}
+\raggedright
+  {\color{accent}\Huge\textbf{\VAR{name}}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large \VAR{title}}}\\[6pt]
+  {\small
+  \IntroBlock
+      {\VAR{location}}
+      {\VAR{phone}}
+      {\href{mailto:\VAR{email}}{\VAR{email}}}
+      {\VAR{nationality_line}}
+      {\VAR{languages_line}}
+      {\BLOCK{if links}\href{\VAR{links[0].url}}{\VAR{links[0].label}}\BLOCK{endif}}
+  }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.20\linewidth}
+  \includegraphics[width=\linewidth]{\VAR{photo_path}}
+\end{minipage}
+\BLOCK{else}
 \begin{center}
   {\color{accent}\Huge\textbf{\VAR{name}}}\\[4pt]
   \color{darktext}
@@ -89,43 +128,42 @@
       {\BLOCK{if links}\href{\VAR{links[0].url}}{\VAR{links[0].label}}\BLOCK{endif}}
   }
 \end{center}
+\BLOCK{endif}
 
 % ============================================================
 %  PROFILE
 % ============================================================
 \section*{\VAR{labels.profile}}
-\vspace{\cvbufferjob}
+\vspace{\introspace}
 \large{\VAR{intro}}
 
 % ============================================================
 %  SKILLS
 % ============================================================
 \section*{\VAR{labels.skills}}
-\vspace{\cvbufferjob}
+\vspace{\introspace}
 \begin{itemize}[leftmargin=1.4em, itemsep=1pt, topsep=2pt]
 \BLOCK{for cat in skill_categories}
-  \item \textbf{\VAR{cat.label}} \BLOCK{for s in cat.skills}\VAR{s}\BLOCK{if not loop.last} \textbullet{} \BLOCK{endif}\BLOCK{endfor}
+  \item \textbf{\VAR{cat.label}:} \BLOCK{for s in cat.skills}\VAR{s}\BLOCK{if not loop.last} \textbullet{} \BLOCK{endif}\BLOCK{endfor}
 \BLOCK{endfor}
 \end{itemize}
-\vspace{\cvbuffersection}
+\vspace{\introspace}
 
 % ============================================================
 %  EXPERIENCE
 % ============================================================
 \section*{\VAR{labels.experience}}
-\vspace{\cvbufferjob}
+\vspace{\jobgappageA}
 \BLOCK{for g in full_groups}
-\jobentry{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}{}
-\vspace{\cvbufferjob}
-{\normalsize $\blacktriangleright$ \VAR{g.summary} \par}
-\BLOCK{if g.bullets}
+\jobentry{\VAR{g.position_title}}{\VAR{g.period}}{\VAR{g.employer}}{\VAR{g.location}}
+\vspace{2pt}
 \begin{itemize}[leftmargin=1.4em, itemsep=1pt, topsep=3pt]
+\item[$\blacktriangleright$] \textbf{\VAR{g.summary}}
 \BLOCK{for bullet in g.bullets}
   \item \VAR{bullet}
 \BLOCK{endfor}
 \end{itemize}
-\BLOCK{endif}
-\vspace{\cvbufferjob}
+\vspace{\jobgappageA}
 \BLOCK{endfor}
 
 % ============================================================
@@ -148,6 +186,7 @@
 \BLOCK{for p in projects}
 \textbf{\VAR{p.title} (\VAR{p.period}):} \VAR{p.summary}
 \BLOCK{endfor}
+\vspace{\outrospace}
 \BLOCK{endif}
 
 % ============================================================

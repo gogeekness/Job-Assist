@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "job-assist",
-      "runtimeExecutable": "/home/reseke/Documents/Git/Job-Assist/.venv/bin/python",
-      "runtimeArgs": ["/home/reseke/Documents/Git/Job-Assist/FindJobs.py"],
+      "runtimeExecutable": "/home/reseke/Git/Job-Assist/.venv/bin/python",
+      "runtimeArgs": ["/home/reseke/Git/Job-Assist/FindJobs.py"],
       "port": 5050
     }
   ]

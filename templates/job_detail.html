@@ -49,11 +49,13 @@
               <span class="badge {% if job.cv_status == 'approved' %}text-bg-success{% else %}text-bg-secondary{% endif %} ms-1">{{ job.cv_status }}</span>
             </a>
             {% else %}
-            <form method="POST" action="/jobs/{{ job.id }}/generate_cv" accept-charset="UTF-8">
-              <button type="submit" class="btn btn-outline-success btn-sm">
+            <div>
+              <button type="button" class="btn btn-outline-success btn-sm" id="generate-cv-btn" data-job-id="{{ job.id }}">
                 <i class="bi bi-magic me-1"></i>Generate CV
+                <span class="spinner-border spinner-border-sm ms-1 d-none" id="generate-cv-spinner"></span>
               </button>
-            </form>
+              <div class="form-text text-end d-none" id="generate-cv-status">Talking to the LLM -- this can take a few minutes.</div>
+            </div>
             {% endif %}
             <a href="/jobs" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-arrow-left me-1"></i>Back to Jobs
@@ -257,5 +259,58 @@ document.getElementById('toggle-desc').addEventListener('click', function() {
   document.getElementById('desc-text').style.maxHeight = expanded ? 'none' : '300px';
   this.textContent = expanded ? 'Collapse' : 'Show full';
 });
+
+const genBtn = document.getElementById('generate-cv-btn');
+if (genBtn) {
+  genBtn.addEventListener('click', function() {
+    const jobId   = this.dataset.jobId;
+    const spinner = document.getElementById('generate-cv-spinner');
+    const status  = document.getElementById('generate-cv-status');
+    this.disabled = true;
+    spinner.classList.remove('d-none');
+    status.classList.remove('d-none');
+
+    fetch('/jobs/' + jobId + '/generate_cv', {method: 'POST'})
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { alert('Error: ' + data.error); resetGenBtn(); return; }
+        pollGenerateStatus(jobId);
+      })
+      .catch(e => { alert('Error: ' + e); resetGenBtn(); });
+
+    function resetGenBtn() {
+      genBtn.disabled = false;
+      spinner.classList.add('d-none');
+      status.classList.add('d-none');
+    }
+  });
+}
+
+function pollGenerateStatus(jobId) {
+  const status = document.getElementById('generate-cv-status');
+  const startedAt = Date.now();
+  const iv = setInterval(() => {
+    fetch('/harvest/status').then(r => r.json()).then(data => {
+      const info = data['generate_cv_' + jobId];
+      if (!info) return;
+      if (info.state === 'running') {
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        status.textContent = info.count
+          ? `Talking to the LLM -- ${info.count} tokens received (${elapsed}s elapsed)`
+          : `Talking to the LLM -- ${elapsed}s elapsed, waiting for the model to respond...`;
+        return;
+      }
+      clearInterval(iv);
+      if (info.state === 'error') {
+        alert('CV generation failed: ' + (info.error || 'unknown error'));
+        genBtn.disabled = false;
+        document.getElementById('generate-cv-spinner').classList.add('d-none');
+        status.classList.add('d-none');
+        return;
+      }
+      window.location.href = '/jobs/' + jobId + '/cv';
+    });
+  }, 3000);
+}
 </script>
 {% endblock %}

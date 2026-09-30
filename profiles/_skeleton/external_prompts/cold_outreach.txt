@@ -1,0 +1,13 @@
+Write a short cold outreach message (LinkedIn or similar) from [YOUR NAME] to a hiring manager or team lead at [COMPANY].
+
+Context:
+- [YOUR NAME] is a [YOUR TITLE] looking for roles in [TARGET REGION]
+- They saw the [TITLE] posting and want to reach out directly, not just apply through the ATS
+- They have a specific connection point: [ONE THING ABOUT THE COMPANY/TEAM that genuinely interests them]
+
+Message rules:
+- Max 4 sentences
+- Do NOT open with "I hope this message finds you well"
+- Reference something specific about their tech stack or work
+- End with a low-friction ask (15-min call, happy to share CV)
+- Professional but human — not a form letter

@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-Unified CV bullet store.
+Unified CV bullet store, for the active profile.
 
 Sources (all factual, never invented):
-  - richard_cv_master_bullet_bank_g_update.csv   structured, primary
-  - LateX_Docs/*.tex                              secondary, free text
-  - CVs_Job_Dos/*.odt                             secondary, free text
+  - the active profile's profile.json + bullet_bank.csv   primary, always used
+  - *.tex / *.odt archive (see tex_source_dir/odt_source_dir)   optional per-profile
+    extra, opt-in via config.json's "include_tex_odt_archive" checkbox -- only ever
+    adds Skills-section tag signal, never Experience content -- default path is the
+    shared LateX_Docs/CVs_Job_Dos symlinks at the repo root, overridable per profile
+    (config.json's "tex_dir"/"odt_dir") or machine-wide (CV_BANK_TEX_DIR/CV_BANK_ODT_DIR)
 
 Every bullet carries: source tag, similarity group, a rating (strength /
 wording / similarity), two ages (cv_timestamp_age from the source file's
-own date, position_age from the career period the bullet describes),
-placement flexibility, and a full parallel schema for German text.
+own date, position_age from the career period the bullet describes), and
+placement flexibility.
 
-Results are cached to bullet_store_cache.json (gitignored) next to this
-file; call build_bullet_store(force_rebuild=True) after editing sources.
+Results are cached to the active profile's bullet_store_cache.json; call
+build_bullet_store(force_rebuild=True) after editing sources.
 """
 
 import csv
@@ -27,65 +30,48 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
 
+import profile as profile_mod
+
 BASE = Path(__file__).parent
-LOCAL_CONFIG_PATH = BASE / "config.local.json"
 
 
-def _load_path_overrides() -> dict:
-    """User-configurable source paths (settings tab), so this isn't
-    hardcoded to one machine. Priority: env vars > config.local.json >
-    the LateX_Docs/CVs_Job_Dos symlinks + CSV at repo root."""
-    overrides = {}
-    if LOCAL_CONFIG_PATH.exists():
-        try:
-            loaded = json.loads(LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                overrides = loaded
-        except (OSError, json.JSONDecodeError):
-            pass
-    return overrides
+def tex_source_dir() -> Path:
+    """Per-profile .tex archive path -- config.json's "tex_dir" field
+    (settings page, next to the include_tex_odt_archive checkbox), read
+    fresh each call so a profile switch or a settings save takes effect
+    immediately, no restart needed. CV_BANK_TEX_DIR env var overrides it
+    (machine-wide, for local dev); falls back to the shared LateX_Docs/
+    symlink at the repo root when the active profile hasn't set its own."""
+    env_val = os.environ.get("CV_BANK_TEX_DIR")
+    if env_val:
+        return Path(env_val)
+    cfg_val = profile_mod.load_config().get("tex_dir")
+    return Path(cfg_val) if cfg_val else (BASE / "LateX_Docs")
 
 
-def _override_str(overrides: dict, key: str):
-    val = overrides.get(key)
-    return val if isinstance(val, str) and val else None
+def odt_source_dir() -> Path:
+    """Per-profile .odt archive path -- same override order as
+    tex_source_dir(), see its docstring."""
+    env_val = os.environ.get("CV_BANK_ODT_DIR")
+    if env_val:
+        return Path(env_val)
+    cfg_val = profile_mod.load_config().get("odt_dir")
+    return Path(cfg_val) if cfg_val else (BASE / "CVs_Job_Dos")
 
 
-_overrides = _load_path_overrides()
-# One same-shaped CSV per language (bullet_bank_en.csv, bullet_bank_de.csv, ...),
-# linked by sharing the same bullet IDs -- cv_bank merges them back into one
-# bullet per ID with a combined variants list. Add a language by adding a new
-# env var/override + entry here; no schema change needed in the other files.
-CSV_PATHS = {
-    "en": Path(os.environ.get("CV_BANK_CSV_PATH_EN") or _override_str(_overrides, "csv_path_en")
-               or (BASE / "bullet_bank_en.csv")),
-    "de": Path(os.environ.get("CV_BANK_CSV_PATH_DE") or _override_str(_overrides, "csv_path_de")
-               or (BASE / "bullet_bank_de.csv")),
-}
-CSV_PATH = CSV_PATHS["en"]  # back-compat alias -- the English file is still "the" primary source
-TEX_DIR = Path(os.environ.get("CV_BANK_TEX_DIR") or _override_str(_overrides, "tex_dir")
-                or (BASE / "LateX_Docs"))
-ODT_DIR = Path(os.environ.get("CV_BANK_ODT_DIR") or _override_str(_overrides, "odt_dir")
-                or (BASE / "CVs_Job_Dos"))
-CACHE_PATH = BASE / "bullet_store_cache.json"  # back-compat alias for the English cache
-CACHE_PATHS = {lang: BASE / f"bullet_store_cache_{lang}.json" for lang in CSV_PATHS}
+def _active_lang() -> str:
+    return profile_mod.load_config().get("lang", "en")
 
 SIMILARITY_THRESHOLD = 0.6
 CURRENT_YEAR = datetime.now().year
 
-KEYWORDS_WEIGHTED = {
-    "linux": 8, "ansible": 7, "python": 6, "bash": 5, "terraform": 6,
-    "jenkins": 5, "docker": 5, "kubernetes": 6, "vmware": 5, "grafana": 4,
-    "graylog": 4, "icinga": 4, "loki": 4, "prometheus": 4, "nginx": 4,
-    "gitlab": 4, "github actions": 4, "hpc": 9, "cluster": 8, "slurm": 8,
-    "infiniband": 8, "ipmi": 7, "pxe": 7, "gpu": 7, "azure": 5, "aws": 5,
-    "debian": 5, "ubuntu": 5, "rhel": 5, "alma": 4, "networking": 4,
-    "routing": 4, "ci/cd": 4, "proxmox": 6, "openstack": 5, "ceph": 5,
-    "zfs": 4, "lustre": 7, "gpfs": 6, "beegfs": 6, "mpi": 7, "openmpi": 7,
-    "cuda": 6, "rdma": 7, "puppet": 4, "chef": 4, "saltstack": 4,
-    "packer": 4, "vault": 4, "consul": 4, "nfs": 4, "iscsi": 4,
-    "fiber channel": 5, "fibre channel": 5,
-}
+def keyword_weights() -> dict:
+    """The active profile's own match-scoring vocabulary (domain.json's
+    "keyword_weights") -- read fresh each call so a profile switch takes
+    effect immediately. Empty for a profile that hasn't configured any
+    (see profile.load_domain_config), meaning every keyword-based score
+    in that case is 0 rather than silently assuming Linux/DevOps terms."""
+    return profile_mod.load_domain_config().get("keyword_weights", {})
 
 VARIANT_LABELS = ["Linux Admin", "DevOps", "Ops / SRE"]
 
@@ -152,16 +138,14 @@ def _id_group_key(bullet_id: str) -> Optional[str]:
     return f"{m.group(1)}-{m.group(2)}" if m else None
 
 
-def load_csv_bullets(csv_path: Path = None, lang: str = "en") -> List[dict]:
-    """Loads one single-language bullet-bank CSV (bullet_bank_en.csv,
-    bullet_bank_de.csv, ...). Each language file is independent -- not
-    merged with any other -- so the exact same parsing/scoring/generation
-    code runs identically regardless of which one is loaded; only the
-    resulting bullet content differs. IDs need not match 1:1 across
-    language files."""
-    csv_path = csv_path if csv_path is not None else CSV_PATHS.get(lang, CSV_PATH)
+def load_csv_bullets(csv_path: Path = None) -> List[dict]:
+    """Loads the active profile's bullet-bank CSV (profile.bullet_bank_path()
+    by default). Each profile is one language -- its bullet bank is never
+    merged with another's."""
+    csv_path = csv_path if csv_path is not None else profile_mod.bullet_bank_path()
     if not csv_path.exists():
         return []
+    lang = _active_lang()
 
     cv_age_days = _file_age_days(csv_path)
 
@@ -208,6 +192,7 @@ def load_csv_bullets(csv_path: Path = None, lang: str = "en") -> List[dict]:
             "employer": _normalize(col(row, "Employer")),
             "position_title": _normalize(col(row, "Job Title")),
             "period": period,
+            "location": _normalize(col(row, "Location")),
             "category": _normalize(col(row, "Category")),
             "importance": importance,
             "anchor": col(row, "Anchor").strip() == "★",
@@ -247,10 +232,11 @@ def _extract_skill_tags(text: str) -> List[str]:
     tex/odt bullets, which (unlike the CSV) have no authored skill-tag
     column of their own."""
     lower = text.lower()
-    return [kw for kw in KEYWORDS_WEIGHTED if kw in lower]
+    return [kw for kw in keyword_weights() if kw in lower]
 
 
-def load_tex_bullets(tex_dir: Path = TEX_DIR) -> List[dict]:
+def load_tex_bullets(tex_dir: Path = None) -> List[dict]:
+    tex_dir = tex_dir if tex_dir is not None else tex_source_dir()
     if not tex_dir.exists():
         return []
     bullets = []
@@ -318,9 +304,11 @@ def _looks_like_label_list(text: str) -> bool:
     return text.count(",") >= 5
 
 
-def load_odt_bullets(odt_dir: Path = ODT_DIR) -> List[dict]:
+def load_odt_bullets(odt_dir: Path = None) -> List[dict]:
+    odt_dir = odt_dir if odt_dir is not None else odt_source_dir()
     if not odt_dir.exists():
         return []
+    kw_weights = keyword_weights()  # resolved once, not per paragraph
     bullets = []
     for path in sorted(odt_dir.glob("*.odt")):
         age_days = _file_age_days(path)
@@ -329,7 +317,7 @@ def load_odt_bullets(odt_dir: Path = ODT_DIR) -> List[dict]:
             words = text.split()
             if not (6 <= len(words) <= 45):
                 continue
-            if not any(kw in text.lower() for kw in KEYWORDS_WEIGHTED):
+            if not any(kw in text.lower() for kw in kw_weights):
                 continue
             if _looks_like_label_list(text):
                 continue
@@ -382,11 +370,13 @@ def _dedupe_exact(bullets: List[dict]) -> List[dict]:
     return ordered
 
 
-def _bucket_keys(text: str) -> List[str]:
+def _bucket_keys(text: str, kw_weights: dict = None) -> List[str]:
     """Coarse keys used to only compare bullets that plausibly overlap,
     instead of every bullet against every other bullet."""
+    if kw_weights is None:
+        kw_weights = keyword_weights()
     lower = text.lower()
-    keys = [kw for kw in KEYWORDS_WEIGHTED if kw in lower]
+    keys = [kw for kw in kw_weights if kw in lower]
     if not keys:
         words = [w for w in re.findall(r"[a-zA-Z]{4,}", lower)][:3]
         keys = words
@@ -429,9 +419,10 @@ def _assign_similarity_groups(bullets: List[dict]) -> None:
     texts = [bullet_text(b).lower() for b in bullets]
     best_sim = [0.0] * n
 
+    kw_weights = keyword_weights()  # resolved once, not once per bullet
     buckets: Dict[str, List[int]] = {}
     for i, text in enumerate(texts):
-        for key in _bucket_keys(text):
+        for key in _bucket_keys(text, kw_weights):
             buckets.setdefault(key, []).append(i)
 
     MAX_BUCKET = 120  # cap pairwise work inside any one bucket (e.g. "linux")
@@ -495,19 +486,21 @@ def _assign_rating_and_flexibility(bullets: List[dict]) -> None:
 # ── build / cache / sort / score ────────────────────────────────────────
 
 def build_bullet_store(force_rebuild: bool = False,
-                        lang: str = "en",
                         csv_path: Path = None,
-                        tex_dir: Path = TEX_DIR,
-                        odt_dir: Path = ODT_DIR,
+                        tex_dir: Path = None,
+                        odt_dir: Path = None,
                         cache_path: Path = None) -> List[dict]:
-    """Builds (or returns the cached) bullet store for one language. Every
-    language runs through the exact same pipeline (load -> dedupe exact ->
-    similarity-group -> rate) -- only which CSV gets loaded differs. The
-    archived .tex/.odt CVs are English-only source material, so they're
-    only folded in for lang="en"; a language with no such archive just
-    gets its CSV bullets."""
-    csv_path = csv_path if csv_path is not None else CSV_PATHS.get(lang, CSV_PATH)
-    cache_path = cache_path if cache_path is not None else CACHE_PATHS.get(lang, CACHE_PATH)
+    """Builds (or returns the cached) bullet store for the active profile.
+    Every profile runs through the exact same pipeline (load -> dedupe
+    exact -> similarity-group -> rate) -- only which CSV gets loaded
+    differs. profile.json + the bullet bank are always the primary
+    source; the archived .tex/.odt CVs are an optional, per-profile extra
+    (config.json's "include_tex_odt_archive" checkbox + "tex_dir"/
+    "odt_dir" path fields, settings page) that only ever adds Skills-tag
+    signal -- never Experience content -- so a profile without it just
+    gets its own CSV bullets."""
+    csv_path = csv_path if csv_path is not None else profile_mod.bullet_bank_path()
+    cache_path = cache_path if cache_path is not None else profile_mod.bullet_cache_path()
 
     if not force_rebuild and cache_path.exists():
         try:
@@ -515,8 +508,8 @@ def build_bullet_store(force_rebuild: bool = False,
         except (OSError, json.JSONDecodeError):
             pass
 
-    bullets = load_csv_bullets(csv_path, lang=lang)
-    if lang == "en":
+    bullets = load_csv_bullets(csv_path)
+    if profile_mod.load_config().get("include_tex_odt_archive", False):
         bullets += load_tex_bullets(tex_dir) + load_odt_bullets(odt_dir)
     bullets = _dedupe_exact(bullets)
     _assign_similarity_groups(bullets)
@@ -527,22 +520,6 @@ def build_bullet_store(force_rebuild: bool = False,
     except OSError:
         pass
     return bullets
-
-
-def sort_bullets(bullets: List[dict], prefer_lang: str = "en") -> List[dict]:
-    """Sort by strength desc, wording desc, low similarity-redundancy
-    (dedupe within a cluster keeping the strongest), then freshest
-    position_age, then freshest cv_timestamp_age."""
-    def key(b):
-        r = b.get("rating", {})
-        return (
-            -r.get("strength", 0),
-            -r.get("wording", 0),
-            r.get("similarity", 0),
-            b.get("position_age_years") if b.get("position_age_years") is not None else 999,
-            b.get("cv_timestamp_age_days") if b.get("cv_timestamp_age_days") is not None else 99999,
-        )
-    return sorted(bullets, key=key)
 
 
 def dedupe_by_similarity_group(bullets: List[dict]) -> List[dict]:
@@ -594,7 +571,7 @@ def recent_bullets(bullets: Optional[List[dict]] = None,
     matching rather than exact keyword overlap."""
     if bullets is None:
         bullets = build_bullet_store()
-    recent_stems = _recent_file_stems([TEX_DIR, ODT_DIR], max_files, max_days)
+    recent_stems = _recent_file_stems([tex_source_dir(), odt_source_dir()], max_files, max_days)
     out = []
     for b in bullets:
         if b["source_tag"].startswith("csv:"):
@@ -612,6 +589,7 @@ def score_bullets(job_text: str, bullets: Optional[List[dict]] = None) -> List[d
     if bullets is None:
         bullets = build_bullet_store()
     lower = (job_text or "").lower()
+    kw_weights = keyword_weights()
 
     scored = []
     for b in bullets:
@@ -619,7 +597,7 @@ def score_bullets(job_text: str, bullets: Optional[List[dict]] = None) -> List[d
             b.get("category", ""), " ".join(b.get("skill_tags", [])),
             b.get("jd_keyword_notes", ""), bullet_text(b),
         ]).lower()
-        s = sum(KEYWORDS_WEIGHTED.get(kw, 3) for kw in KEYWORDS_WEIGHTED if kw in hay and kw in lower)
+        s = sum(kw_weights.get(kw, 3) for kw in kw_weights if kw in hay and kw in lower)
         if s > 0:
             # CSV is the curated, non-duplicative primary source (vs. the
             # much larger pool of near-duplicate bullets pulled from ~300
@@ -661,6 +639,7 @@ def build_position_timeline(bullets: Optional[List[dict]] = None) -> List[dict]:
                 "employer": b["employer"],
                 "position_title": b["position_title"],
                 "period": b["period"],
+                "location": b.get("location", ""),
                 "position_age_years": b.get("position_age_years"),
                 "bullets": [],
             }

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}CV Template ({{ active_profile }}) — Job Assist{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>CV Template — {{ active_profile }}</h5>
+      <span class="text-muted small">The LaTeX/Jinja2 source every generated CV is built from. Changes take effect on the next Generate/Regenerate.</span>
+    </div>
+    {% if saved %}
+    <div class="alert alert-success py-2 small">Saved.</div>
+    {% endif %}
+    <div class="alert alert-secondary py-2 small">
+      Custom delimiters: use <code>\VAR{...}</code> for variables and <code>\BLOCK{...}</code> for logic
+      (<code>if</code>/<code>for</code>/etc.) instead of Jinja's normal <code>{{ '{{' }} {{ '}}' }}</code>/<code>{% raw %}{%{% endraw %} %{% raw %}}{% endraw %}</code> — plain <code>{ }</code> is LaTeX syntax here, not Jinja.
+      Available variables: <code>name</code>, <code>title</code>, <code>location</code>, <code>phone</code>, <code>email</code>,
+      <code>nationality_line</code>, <code>languages_line</code>, <code>links</code>, <code>photo_path</code>, <code>education</code>,
+      <code>certificates</code>, <code>projects</code>, <code>skill_categories</code>, <code>full_groups</code>, <code>earlier_groups</code>,
+      <code>intro</code>, <code>labels</code>.
+    </div>
+  </div>
+
+  <div class="col-12">
+    <form method="POST" accept-charset="UTF-8">
+      <div class="card">
+        <div class="card-body p-2">
+          <textarea name="template_content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
+                    spellcheck="false">{{ template_content }}</textarea>
+        </div>
+        <div class="card-footer d-flex gap-2 justify-content-between">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-save me-1"></i>Save
+          </button>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="reset-template-btn">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Blank Default
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('reset-template-btn').addEventListener('click', () => {
+  if (!confirm('Reset to the blank starting template? This discards your current template and cannot be undone.')) return;
+  fetch('/template_editor/reset', {method: 'POST'})
+    .then(() => location.reload())
+    .catch(e => alert('Error: ' + e));
+});
+</script>
+{% endblock %}
