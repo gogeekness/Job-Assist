@@ -3,7 +3,10 @@
 End-to-end job search pipeline: harvest postings → gross-filter → LLM-rate →
 generate a tailored LaTeX CV/cover letter per approved job. Owner: Richard
 Eseke (rdeseke@swcp.com), sysadmin job search, Berlin/Germany/EU. Full
-pipeline description: [README.md](README.md).
+pipeline description: [README.md](README.md). Cross-machine/cross-repo
+planning notes (things not specific enough to belong in this file, e.g. the
+CI/CD rollout) live in [OPS_NOTES.md](OPS_NOTES.md) — check it for context
+before starting related work.
 
 ## Machines
 
