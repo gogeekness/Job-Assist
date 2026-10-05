@@ -2,97 +2,70 @@
 
 End-to-end job search pipeline: harvest postings → gross-filter → LLM-rate →
 generate a tailored LaTeX CV/cover letter per approved job. Owner: Richard
-Eseke (rdeseke@swcp.com), sysadmin job search, Berlin/Germany/EU. Full
-pipeline description: [README.md](README.md). Cross-machine/cross-repo
-planning notes (things not specific enough to belong in this file, e.g. the
-CI/CD rollout) live in [OPS_NOTES.md](OPS_NOTES.md) — check it for context
-before starting related work.
+Eseke (rdeseke@swcp.com). Full pipeline description: [README.md](README.md).
 
-## Machines
+## Architecture: LLM/API backends
 
-- **Orion-Station** (`192.168.178.40`) — RTX 3090, runs the app (`HOST`/`PORT`
-  env vars control LAN binding; defaults to localhost:5050), local Ollama
-  for the LLM backend when profiles want it.
-- **Laptop** (`192.168.178.25`) — thin client. No live connection between the
-  two is assumed; they sync independently through `origin` on GitHub
-  (`git@github.com:gogeekness/Job-Assist.git`).
-- **Do not run multiple Claude sessions against the same checkout of this
-  repo at once.** `git checkout`/branch state is filesystem-wide, not
-  per-session — a second session doing `git checkout <other-branch>` silently
-  moves the branch under whichever session is mid-task. If you need two
-  sessions working here simultaneously, give each its own `git worktree`
-  instead of sharing one directory.
+Every LLM/API call in the app goes through the **active profile's** own
+settings (`profile.llm_config()`/`profile.save_llm_config()`, saved to that
+profile's `config.json` via the Settings → LLM Connection page) — never
+global env vars or a hardcoded provider. Config is read fresh on every call
+(not cached at import), so a settings save or a profile switch takes effect
+immediately, no restart needed.
 
-## Branches
+Five backends, selected by `llm_config()["llm_backend"]`:
 
-- **`main`** — stable trunk. (Renamed from `master` locally + on `origin`;
-  **GitHub's repo-level default branch is still `master`** as of this
-  writing — Settings → Branches → Default branch still needs to be flipped
-  to `main` by hand, `gh` wasn't installed on Orion to do it via CLI.)
-- **`dev`** — active feature work, currently: generalizing the harvest/rate
-  layer beyond Germany/German (see "Open work" below).
-- **`author`** — Richard's daily-use branch: personal tweaks, content
-  changes, small fixes. Merge into `main` once stable; rebase onto `main`
-  after `dev` work lands.
+- `stub` — default; keyword scoring only, no external call, no credentials needed.
+- `anthropic` — official `anthropic` SDK; needs `anthropic_api_key` + `anthropic_model`.
+- `openai` — official `openai` SDK; needs `openai_api_key` + `openai_model`.
+- `ollama` — raw `requests` calls (no SDK) against any Ollama instance on
+  the network (`ollama_host` + `ollama_model` + `ollama_timeout`).
+- `custom` — any OpenAI-compatible `/chat/completions` endpoint (self-hosted,
+  a proxy, a third-party provider) via raw `requests`, deliberately **not**
+  the `openai` SDK — see `llm_plugin.custom_chat_completion()`'s docstring:
+  that SDK is just a JSON-over-HTTP wrapper, and importing it to reach a
+  server that has nothing to do with OpenAI meant a missing `openai` pip
+  package broke a backend that never talked to OpenAI. `custom_min_tokens`
+  is a floor (default 4000), not a ceiling — self-hosted reasoning models
+  spend tokens on chain-of-thought before the visible answer and can get
+  cut off mid-reasoning (`finish_reason="length"`, empty content) if it's
+  set too low.
 
-## Architecture: profiles
+All five backends' defaults live in one place: `profile.py`'s
+`_LLM_CONFIG_DEFAULTS`.
 
-A *profile* (`profiles/<ID>/`, e.g. `RICHARD-DE-01`, `RICHARD-EN-01`) is a
-self-contained context: personal fields, bullet bank, the four LLM prompts,
-CV template, settings, per-profile job state, and its own generated output.
-Path resolution lives in [profile.py](profile.py); `profiles/_skeleton/` is
-what `create_profile()` copies from. Active profile is `.active_profile`
-(gitignored) or the `JOB_ASSIST_PROFILE` env var.
+**Two call sites, same backend switch, different contracts:**
 
-**Intent (per Richard, 2026-09-29): profiles are a general context bucket —
-language, market, prompts, LLM backend, whatever a given job search needs —
-not a hardcoded DE/EN toggle.** CV/cover-letter generation
-([generate_cv.py](generate_cv.py), [cv_bank.py](cv_bank.py)) already matches
-this: `lang` is just a string read from the active profile's `config.json`,
-and per-language content is `{lang: ...}` dicts that fall back to `"en"`.
-Adding a new target language is adding a dict key, not writing code.
+- [llm_plugin.py](llm_plugin.py) — `rate_job()` scores a posting against
+  the candidate's CV blocks; every non-stub branch returns a parsed JSON
+  object (`_parse_json_response()` strips ` ```json ` fences and extracts
+  the `{...}` body) in a shared shape (`score`/`backend`/`summary`/
+  `highlights`/`block_matches`/`concerns`). `test_connection()` mirrors the
+  same backend list for the Settings page's cheap "Test access" check —
+  minimal tokens, no real rating.
+- [generate_cv.py](generate_cv.py) — `_call_llm()` (same five-way backend
+  dispatch) returns **raw text**, not JSON — used for cover-letter
+  paragraphs and CV-block-tailoring gaps. Streams token-by-token for
+  Ollama (`on_progress` callback); Anthropic/OpenAI/custom report progress
+  in one shot since their SDKs/HTTP calls here aren't wired for streaming.
 
-**What does NOT yet match this intent:** the harvest/filter/rate layer
-(`FindJobs.py`, `llm_plugin.py`) is hardcoded to Germany/German/English via
-module-level constants (`GERMANY_CITIES`, `IT_SEARCH_LOCATIONS`,
-`IT_SEARCH_TERMS`, `LINKEDIN_GEO_IDS`, `LANGUAGE_HINTS`), plus a "non-Germany
-EU postings must be English" hard-exclude rule in `upsert_job()` and a
-`"German fluency required"` rating flag in `llm_plugin.py`'s stub rater.
-None of it reads from a profile.
+**Adding a new backend** means touching all of: `profile.py`'s
+`_LLM_CONFIG_DEFAULTS` (new config keys with sane defaults) +
+`llm_plugin.py`'s `rate_job()`/`test_connection()` + `generate_cv.py`'s
+`_call_llm()` + the Settings page template. There's no shared base class —
+each backend is a plain `if backend == "...":` branch in each of those
+three places; keep that pattern rather than introducing an abstraction for
+what's currently five linear branches in three functions.
 
-**Architectural wrinkle to keep in mind:** `jobs.db` (harvested postings) is
-explicitly **shared across every profile** ([db.py](db.py)) — only
-ratings/notes (`job_state.db`) are per-profile. So harvest criteria is
-inherently a shared/global concern today, not a per-profile one, unlike CV
-generation. `job_harvester_and_cv_mapper.py` is reference-only / not
-imported at runtime — its LinkedIn technique was reimplemented directly in
-`FindJobs.py`'s `_do_harvest_linkedin_alt()`.
+## Prompts
 
-## Open work (scoped, lives on `dev`)
-
-Move the harvest-layer hardcoding into an editable, app-wide
-`harvest_config.json` (gitignored) + tracked `harvest_config.example.json`,
-seeded with the current Germany/Spain/Portugal/Italy/Malta values so nothing
-changes until someone edits it:
-
-1. New config file: `search_locations`, `search_terms`, `linkedin_geo_ids`,
-   which cities count as the "home" region, language-detection hint
-   phrases (primary/partial/fallback), foreign-language exclusion toggle.
-2. `FindJobs.py`: the five module constants above + the `upsert_job()`
-   exclusion rule read from it instead of being hardcoded.
-3. `llm_plugin.py`: the `"German fluency required"` concern reads the
-   active profile's target-language label instead of the literal string
-   `"german"`.
-4. `EU_COUNTRIES`/`ISO_COUNTRY_CODES` stay as-is — already generic (30
-   countries), not Germany-specific.
-5. Settings UI for editing the new config is a nice-to-have, not required
-   for phase 1 (hand-editing the JSON works).
-
-Not in scope unless asked: true per-profile independent job pools (each
-profile harvesting/seeing only its own jobs) — would require partitioning
-`jobs.db` by profile and reworking the shared-harvest scheduler. Only worth
-it if two profiles need genuinely different simultaneous markets; today's
-two profiles are the same search in two output languages.
+Each profile (`profiles/<ID>/prompts/`) carries four templates the app
+itself calls: `rate_job.txt`, `cover_letter.txt`, `intro.txt`,
+`recommend_bullets.txt` (plain `string.Template` `$substitution`, not
+f-strings — see `_build_prompt()`). Separately, `external_prompts/` holds
+prompts meant to be copy-pasted into an external AI chat tool by hand (JD
+analysis, cold outreach, interview prep, salary research, cover letters per
+language) — the app never calls these itself.
 
 ## Setup
 
