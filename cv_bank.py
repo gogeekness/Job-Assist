@@ -22,6 +22,7 @@ build_bullet_store(force_rebuild=True) after editing sources.
 import csv
 import json
 import os
+import profile as profile_mod
 import re
 import zipfile
 from datetime import datetime, timezone
@@ -29,8 +30,6 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
-
-import profile as profile_mod
 
 BASE = Path(__file__).parent
 

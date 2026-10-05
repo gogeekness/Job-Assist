@@ -25,8 +25,8 @@ from urllib.parse import parse_qsl
 BASE = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE))
 
+import cv_bank  # noqa: E402
 import FindJobs  # noqa: E402 -- must come after sys.path insert
-import cv_bank    # noqa: E402
 
 ACTIVE_SECONDS = 45 * 60
 REST_SECONDS = 15 * 60

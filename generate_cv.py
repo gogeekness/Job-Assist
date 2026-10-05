@@ -13,7 +13,7 @@ project decision: get CV generation solid first).
 """
 
 import json
-import os
+import profile as profile_mod
 import re
 import subprocess
 import sys
@@ -25,7 +25,6 @@ import jinja2
 
 import cv_bank
 import db
-import profile as profile_mod
 
 BASE = Path(__file__).parent
 
