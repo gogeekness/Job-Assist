@@ -10,11 +10,11 @@ before starting related work.
 
 ## Machines
 
-- **Orion-Station** (`192.168.178.40`) — RTX 3090, runs the app (`HOST`/`PORT`
-  env vars control LAN binding; defaults to localhost:5050), local Ollama
-  for the LLM backend when profiles want it.
-- **Laptop** (`192.168.178.25`) — thin client. No live connection between the
-  two is assumed; they sync independently through `origin` on GitHub
+- **Orion-Station** — RTX 3090, runs the app (`HOST`/`PORT` env vars
+  control LAN binding; defaults to localhost:5050), local Ollama for the
+  LLM backend when profiles want it.
+- **Laptop** — thin client. No live connection between the two is assumed;
+  they sync independently through `origin` on GitHub
   (`git@github.com:gogeekness/Job-Assist.git`).
 - **Do not run multiple Claude sessions against the same checkout of this
   repo at once.** `git checkout`/branch state is filesystem-wide, not

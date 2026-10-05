@@ -30,8 +30,8 @@ it. Fuller hardware detail + the Ada GPU dilemma now live in
 
 | Machine | RAM | GPU | Role |
 |---|---|---|---|
-| **Orion-Station** (`192.168.178.40`) | 48GB DDR4 | RTX 3090 (24GB VRAM) | Desktop: gaming, image-gen, Job-Assist's Ollama LLM backend. Also hosts AutoMem. **Actively used for other things — treat its GPU as contended, not dedicated.** |
-| **Laptop** (`192.168.178.25`) | 16GB (DDR4?) | RTX 2070-M | Thin client. |
+| **Orion-Station** | 48GB DDR4 | RTX 3090 (24GB VRAM) | Desktop: gaming, image-gen, Job-Assist's Ollama LLM backend. Also hosts AutoMem. **Actively used for other things — treat its GPU as contended, not dedicated.** |
+| **Laptop** | 16GB (DDR4?) | RTX 2070-M | Thin client. |
 | **Dustoff** | 72GB DDR3-ECC | none (no GPU/NPU) | Kolla single-node OpenStack cloud (see [dustoff-openstack-topology](../../.claude/projects/-home-reseke-Git-Job-Assist/memory/dustoff-openstack-topology.md) memory). Bastion = controller; no external route to tenant nets. |
 
 ## 2026-09-30 — CI/CD planning kickoff
