@@ -17,6 +17,7 @@ import html
 import io
 import json
 import os
+import profile
 import re
 import shutil
 import sys
@@ -25,16 +26,14 @@ import uuid
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from urllib.parse import urlencode
 
 import feedparser
 import requests
-from flask import (Flask, Response, jsonify, redirect,
-                   render_template, request, send_file, url_for)
+from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
 import db
-import profile
 
 BASE         = Path(__file__).parent
 BOARDS_FILE  = BASE / "boards.txt"
@@ -766,6 +765,7 @@ def _do_harvest_linkedin_alt():
     try:
         import random
         import time as _time
+
         from bs4 import BeautifulSoup
         from user_agents import USER_AGENTS
 
@@ -1636,6 +1636,7 @@ def save_cleanup_settings():
 @app.route("/settings/rebuild_bullets", methods=["POST"])
 def rebuild_bullets():
     import importlib
+
     import cv_bank
     importlib.reload(cv_bank)  # re-read config.local.json path overrides
     cv_bank.build_bullet_store(force_rebuild=True)

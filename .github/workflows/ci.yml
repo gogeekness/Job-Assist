@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Self-hosted only (OPS_NOTES.md: explicit choice, no GitHub-hosted
+# runners) -- these run on Dustoff OpenStack worker VMs. The `dustoff` and
+# `job-assist` labels must match whatever labels you assign when
+# registering the runner(s) there; adjust runs-on below if you pick
+# different ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: [self-hosted, dustoff, job-assist]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    runs-on: [self-hosted, dustoff, job-assist]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+
+  package:
+    needs: [lint, test]
+    runs-on: [self-hosted, dustoff, job-assist]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build versioned archive
+        id: build
+        run: |
+          VERSION="0.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}-$(git rev-parse --short HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          git archive --format=tar.gz -o "job-assist-${VERSION}.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: job-assist-${{ steps.build.outputs.version }}
+          path: job-assist-${{ steps.build.outputs.version }}.tar.gz
+          retention-days: 30

@@ -10,10 +10,9 @@ callers can keep querying a single `jobs_full` view instead of hand-joining
 everywhere. In legacy mode (no active profile), `jobs_full` is just an
 alias for `jobs` -- state columns still live inline there.
 """
+import profile
 import sqlite3
 from pathlib import Path
-
-import profile
 
 BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"

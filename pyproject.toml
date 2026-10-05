@@ -1,0 +1,23 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    "jobspy",      # vendored third-party package (speedyapply/JobSpy), not our style
+    "job-scraper", # separate reference tool, own deps not in requirements.txt
+    ".venv",
+    "backups",
+    "generated",
+    "profiles",    # personal profile data + generated output, not tracked (except _skeleton)
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501", # line length handled by formatter/line-length above, not worth failing CI over
+    "E741", # ambiguous variable names (`l`) -- pre-existing, not a CI-setup concern
+    "E701", # multiple statements on one line -- pre-existing compact if/elif style
+    "E731", # lambda assignment -- pre-existing, one call site
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

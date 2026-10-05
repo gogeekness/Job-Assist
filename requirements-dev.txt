@@ -1,0 +1,4 @@
+# CI/local dev only -- not needed to run the app itself
+-r requirements.txt
+pytest
+ruff

@@ -27,13 +27,12 @@ All backends return the same dict:
 """
 
 import json
-import os
+import profile as profile_mod
 import re
 from pathlib import Path
 from string import Template
 
 import cv_bank
-import profile as profile_mod
 
 BASE = Path(__file__).parent
 
