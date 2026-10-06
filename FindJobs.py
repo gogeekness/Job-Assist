@@ -1997,23 +1997,18 @@ def prompts():
     defaults_dir = BASE / "default-settings" / "prompts"
 
     if request.method == "POST":
+        for name, _label, _desc in _SYSTEM_PROMPTS:
+            text = request.form.get(name)
+            if text is not None:
+                (sys_dir / f"{name}.txt").write_text(text, encoding="utf-8")
         for name, _label, _icon, _desc in _EXTERNAL_PROMPTS:
             text = request.form.get(name)
             if text is not None:
                 ext_dir.mkdir(parents=True, exist_ok=True)
                 (ext_dir / f"{name}.txt").write_text(text, encoding="utf-8")
-        for name, _label, _desc in _SYSTEM_PROMPTS:
-            text = request.form.get(name)
-            if text is not None:
-                (sys_dir / f"{name}.txt").write_text(text, encoding="utf-8")
         return redirect(url_for("prompts", saved=1))
 
     items = []
-    for name, label, icon, desc in _EXTERNAL_PROMPTS:
-        path = ext_dir / f"{name}.txt"
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
-        items.append({"name": name, "label": label, "icon": icon, "desc": desc,
-                       "text": text, "kind": "external"})
     for name, label, desc in _SYSTEM_PROMPTS:
         path = sys_dir / f"{name}.txt"
         default_path = defaults_dir / f"{name}.txt"
@@ -2021,6 +2016,11 @@ def prompts():
         default_text = default_path.read_text(encoding="utf-8") if default_path.exists() else ""
         items.append({"name": name, "label": label, "icon": "bi-robot", "desc": desc,
                        "text": text, "kind": "internal", "is_customized": text != default_text})
+    for name, label, icon, desc in _EXTERNAL_PROMPTS:
+        path = ext_dir / f"{name}.txt"
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        items.append({"name": name, "label": label, "icon": icon, "desc": desc,
+                       "text": text, "kind": "external"})
     return render_template("prompts.html", items=items, saved=request.args.get("saved"))
 
 @app.route("/template_editor", methods=["GET", "POST"])
