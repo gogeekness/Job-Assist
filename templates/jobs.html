@@ -48,21 +48,6 @@
           <div class="form-text">Saves the filters currently applied (click "Apply Filters" first if you just changed something).</div>
         </div>
 
-        <!-- Quick filters -->
-        <div class="filter-section">
-          <label class="form-label small fw-semibold mb-1"><i class="bi bi-lightning"></i> Quick Filters</label>
-          <div class="d-flex flex-wrap gap-1">
-            <a href="/jobs?region=berlin,germany,eu&language=english,partial_german&kw_and=linux,ansible"
-               class="btn btn-outline-secondary btn-sm">Linux + Ansible / EU</a>
-            <a href="/jobs?region=germany,eu&kw_and=hpc&kw_or=slurm,infiniband,pxe,ipmi"
-               class="btn btn-outline-secondary btn-sm">HPC / Research</a>
-            <a href="/jobs?kw_and=linux&kw_or=terraform,kubernetes,docker&language=english,partial_german"
-               class="btn btn-outline-secondary btn-sm">DevOps / Platform</a>
-            <a href="/jobs?ats=euraxess"
-               class="btn btn-outline-secondary btn-sm">EURAXESS only</a>
-          </div>
-        </div>
-
         <form method="GET" action="/jobs" id="filterForm" accept-charset="UTF-8">
 
           <!-- Text search -->
@@ -155,7 +140,7 @@
             <label class="form-label small fw-semibold mb-1"><i class="bi bi-bar-chart-fill"></i> Trade / Profession</label>
             <select class="form-select form-select-sm" name="profession">
               <option value="">All</option>
-              {% for p in ['hpc_research','ml_engineer','ai_engineer','data_scientist','mlops_engineer','devops_sre','cloud','linux_sysadmin','network','security','data_db','software_dev','it_support','other_it','unclassified'] %}
+              {% for p in ['hpc_research','ml_engineer','ai_engineer','data_scientist','mlops_engineer','devops_sre','cloud','linux_sysadmin','network','security','data_db','software_dev','it_support','medical','space','drone','manufacturing','environmental','energy','other_it','unclassified'] %}
               <option value="{{ p }}" {% if args.get('profession')==p %}selected{% endif %}>{{ p | replace('_',' ') }}</option>
               {% endfor %}
             </select>
@@ -338,7 +323,7 @@
                   <i class="bi bi-sticky-fill text-warning" title="Has notes: {{ j.notes[:200] }}"></i>
                 {% endif %}
               </td>
-              <td class="small text-muted">{{ (j.date_posted or j.created_at or '')[:10] }}</td>
+              <td class="small text-muted">{{ (j.date_posted or j.created_at) | fmtdate }}</td>
             </tr>
             {% else %}
             <tr>

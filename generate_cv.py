@@ -362,7 +362,7 @@ def llm_recommend_bullets(job: dict, timeline: list, on_progress=None):
             lines.append(f"  [{b['id']}]{anchor_mark}{tag} {cv_bank.bullet_text(b)}")
         blocks.append("\n".join(lines))
 
-    prompt = _load_prompt("recommend_bullets").safe_substitute(
+    prompt = _load_prompt("generate_cv").safe_substitute(
         title=job.get("title"), company=job.get("company"),
         description=(job.get("description") or "")[:1500],
         blocks="\n".join("---\n" + b for b in blocks),
@@ -502,7 +502,7 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
 
         # Full-entry vs. "Earlier" placement: prefer the LLM's own reasoned
         # call (it weighs relevance/recency/tenure together per job, see
-        # recommend_bullets.txt) when the recommendation gave one; fall
+        # generate_cv.txt) when the recommendation gave one; fall
         # back to the older pure keyword-score threshold only when there's
         # no LLM placement to use (stub backend, or a failed call). Looked
         # up from `llm_placement`, NOT `rec`/`llm_recommendation` -- the
@@ -524,7 +524,7 @@ def build_position_groups(job: dict, jtext: str, trim_level: int = 0, drop_dropp
         # profile owner's own explicit calibration that it's a reliably
         # strong fit whenever genuinely relevant (domain.json's
         # priority_tiers/priority_tier -- also passed to the LLM as
-        # "Priority guidance" text in recommend_bullets.txt). A single
+        # "Priority guidance" text in generate_cv.txt). A single
         # LLM placement call doesn't reliably weigh that subtle a hint
         # against the rest of the prompt -- so when the LLM says "earlier"
         # for one of these positions but this job's own keyword evidence

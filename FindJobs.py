@@ -62,6 +62,19 @@ def fromjson_filter(value):
     except (ValueError, TypeError):
         return {}
 
+@app.template_filter("fmtdate")
+def fmtdate_filter(value):
+    """Jobs list/detail display -- date_posted is a raw Unix-epoch string
+    for arbeitnow ("1788170442"), not an id, but a naive [:10] slice on
+    it just shows the first 10 digits of the number instead of a date.
+    Reuses _parse_job_date (already correct -- it's what cleanup_old_jobs
+    uses to judge real age) so display and retention agree on what date
+    a posting actually has. Falls back to the raw [:10] slice for
+    anything _parse_job_date can't parse, so an unrecognized future
+    format still shows something instead of nothing."""
+    dt = _parse_job_date(value)
+    return dt.strftime("%Y-%m-%d") if dt else (value or "")[:10]
+
 @app.context_processor
 def inject_profile_nav():
     return {
@@ -243,6 +256,16 @@ PROFESSION_CATEGORIES = {
     "data_db":        ["data engineer", "database administrator", "dba"],
     "software_dev":   ["developer", "entwickler", "software engineer", "programmer", "full stack", "fullstack", "backend", "frontend"],
     "it_support":     ["support", "helpdesk", "help desk", "service desk", "technician"],
+    # General (non-IT) trades -- placed before other_it's generic
+    # "engineer"/"engineering"/"technician" catch-alls so e.g. "Energy
+    # Engineer" or "Drone Pilot" lands here instead of being misclassified
+    # as IT just for sharing a word with it.
+    "medical":        ["medical", "healthcare", "health care", "nurse", "physician", "clinical", "pharma"],
+    "space":          ["space", "satellite", "aerospace", "astronaut"],
+    "drone":          ["drone", "uav", "unmanned aerial"],
+    "manufacturing":  ["manufacturing", "production line", "assembly", "machinist", "cnc", "fertigung"],
+    "environmental":  ["environmental", "sustainability", "umwelt", "climate"],
+    "energy":         ["energy", "renewable", "solar", "wind turbine", "energie"],
     "other_it":       ["it ", "informatik", "engineer", "engineering", "system", "technical"],
 }
 
@@ -1952,22 +1975,52 @@ _EXTERNAL_PROMPTS = [
     ("followup",         "Follow-up After Applying",         "bi-send",           "After 10-14 days with no response."),
 ]
 
+_SYSTEM_PROMPTS = [
+    ("rate_job",           "Job Rating",       "Used to score every job 0-10 (single-job rate and bulk/selected rating)."),
+    ("generate_cv",        "CV Bullet Selection", "Picks which real bullets go into the tailored CV per job."),
+    ("intro",              "CV Intro Summary",  "Writes the 2-sentence summary paragraph at the top of the CV."),
+    ("cover_letter",       "Cover Letter",      "Writes the opening, body, and closing paragraphs of the cover letter."),
+]
+
 @app.route("/prompts", methods=["GET", "POST"])
 def prompts():
-    prompts_dir = profile.external_prompts_dir()
+    """One pane for every prompt the app knows about -- "internal" ones
+    this app sends to your LLM backend itself (profile.prompts_dir()) and
+    "external" ones meant to be copy-pasted into Claude/ChatGPT by hand
+    (profile.external_prompts_dir()), told apart by a badge on each card.
+    Was two separate pages/routes (/prompts, /system_prompts); merged
+    since both are just "a named prompt.txt in a profile-scoped folder,"
+    differing only in which folder and whether a default exists to diff
+    against/reset to."""
+    ext_dir = profile.external_prompts_dir()
+    sys_dir = profile.prompts_dir()
+    defaults_dir = BASE / "default-settings" / "prompts"
+
     if request.method == "POST":
         for name, _label, _icon, _desc in _EXTERNAL_PROMPTS:
             text = request.form.get(name)
             if text is not None:
-                prompts_dir.mkdir(parents=True, exist_ok=True)
-                (prompts_dir / f"{name}.txt").write_text(text, encoding="utf-8")
+                ext_dir.mkdir(parents=True, exist_ok=True)
+                (ext_dir / f"{name}.txt").write_text(text, encoding="utf-8")
+        for name, _label, _desc in _SYSTEM_PROMPTS:
+            text = request.form.get(name)
+            if text is not None:
+                (sys_dir / f"{name}.txt").write_text(text, encoding="utf-8")
         return redirect(url_for("prompts", saved=1))
 
     items = []
     for name, label, icon, desc in _EXTERNAL_PROMPTS:
-        path = prompts_dir / f"{name}.txt"
+        path = ext_dir / f"{name}.txt"
         text = path.read_text(encoding="utf-8") if path.exists() else ""
-        items.append({"name": name, "label": label, "icon": icon, "desc": desc, "text": text})
+        items.append({"name": name, "label": label, "icon": icon, "desc": desc,
+                       "text": text, "kind": "external"})
+    for name, label, desc in _SYSTEM_PROMPTS:
+        path = sys_dir / f"{name}.txt"
+        default_path = defaults_dir / f"{name}.txt"
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        default_text = default_path.read_text(encoding="utf-8") if default_path.exists() else ""
+        items.append({"name": name, "label": label, "icon": "bi-robot", "desc": desc,
+                       "text": text, "kind": "internal", "is_customized": text != default_text})
     return render_template("prompts.html", items=items, saved=request.args.get("saved"))
 
 @app.route("/template_editor", methods=["GET", "POST"])
@@ -1991,36 +2044,6 @@ def reset_template():
         profile.template_path().write_text(default_path.read_text(encoding="utf-8"), encoding="utf-8")
     return redirect(url_for("template_editor", saved=1))
 
-_SYSTEM_PROMPTS = [
-    ("rate_job",           "Job Rating",       "Used to score every job 0-10 (single-job rate and bulk/selected rating)."),
-    ("recommend_bullets",  "CV Bullet Selection", "Picks which real bullets go into the tailored CV per job."),
-    ("intro",              "CV Intro Summary",  "Writes the 2-sentence summary paragraph at the top of the CV."),
-    ("cover_letter",       "Cover Letter",      "Writes the opening, body, and closing paragraphs of the cover letter."),
-]
-
-@app.route("/system_prompts", methods=["GET", "POST"])
-def system_prompts():
-    prompts_dir = profile.prompts_dir()
-    defaults_dir = BASE / "default-settings" / "prompts"
-    if request.method == "POST":
-        for name, _label, _desc in _SYSTEM_PROMPTS:
-            text = request.form.get(name)
-            if text is not None:
-                (prompts_dir / f"{name}.txt").write_text(text, encoding="utf-8")
-        return redirect(url_for("system_prompts", saved=1))
-
-    items = []
-    for name, label, desc in _SYSTEM_PROMPTS:
-        path = prompts_dir / f"{name}.txt"
-        default_path = defaults_dir / f"{name}.txt"
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
-        default_text = default_path.read_text(encoding="utf-8") if default_path.exists() else ""
-        items.append({
-            "name": name, "label": label, "desc": desc, "text": text,
-            "is_customized": text != default_text,
-        })
-    return render_template("system_prompts.html", items=items, saved=request.args.get("saved"))
-
 @app.route("/system_prompts/reset/<name>", methods=["POST"])
 def reset_system_prompt(name):
     valid_names = {n for n, _l, _d in _SYSTEM_PROMPTS}
@@ -2031,7 +2054,7 @@ def reset_system_prompt(name):
         (profile.prompts_dir() / f"{name}.txt").write_text(
             default_path.read_text(encoding="utf-8"), encoding="utf-8"
         )
-    return redirect(url_for("system_prompts", saved=1))
+    return redirect(url_for("prompts", saved=1))
 
 # ── profiles ───────────────────────────────────────────────────────────────────
 

@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}External Prompts — Job Assist{% endblock %}
+{% block title %}Prompts — Job Assist{% endblock %}
 
 {% block content %}
 <div class="row g-3">
   <div class="col-12">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0"><i class="bi bi-chat-quote me-1"></i>External Prompts</h5>
-      <span class="text-muted small">For pasting into Claude, ChatGPT, or another AI tool — not sent by this app itself. Edit freely; changes are saved per profile.</span>
+      <h5 class="mb-0"><i class="bi bi-chat-quote me-1"></i>Prompts</h5>
+      <span class="text-muted small"><strong>Internal</strong> = what this app actually sends to your LLM backend. <strong>External</strong> = for pasting into Claude, ChatGPT, or another AI tool by hand. Both save per profile, no restart needed.</span>
     </div>
     {% if saved %}
-    <div class="alert alert-success py-2 small">Saved.</div>
+    <div class="alert alert-success py-2 small">Saved. Internal prompt changes take effect on the next generation/rating call.</div>
     {% endif %}
   </div>
 
@@ -19,16 +19,42 @@
         {% for item in items %}
         <div class="col-12 col-lg-6">
           <div class="card h-100">
-            <div class="card-header fw-semibold">
-              <i class="bi {{ item.icon }} me-1"></i>{{ item.label }}
-              <div class="text-muted small fw-normal">{{ item.desc }}</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">
+                <i class="bi {{ item.icon }} me-1"></i>{{ item.label }}
+                {% if item.kind == 'internal' %}
+                  <span class="badge bg-primary ms-1">Internal</span>
+                {% else %}
+                  <span class="badge bg-secondary ms-1">External</span>
+                {% endif %}
+                <div class="text-muted small fw-normal">{{ item.desc }}</div>
+              </span>
+              {% if item.kind == 'internal' %}
+              <span class="d-flex align-items-center gap-2 flex-shrink-0">
+                {% if item.is_customized %}
+                  <span class="badge bg-warning text-dark">Modified</span>
+                {% else %}
+                  <span class="badge bg-light text-dark border">Default</span>
+                {% endif %}
+                <button type="button" class="btn btn-outline-secondary btn-sm reset-prompt-btn"
+                        data-name="{{ item.name }}" {% if not item.is_customized %}disabled{% endif %}>
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+              </span>
+              {% endif %}
             </div>
             <div class="card-body">
               <textarea class="form-control font-monospace small prompt-textarea" name="{{ item.name }}"
                         rows="12" spellcheck="false">{{ item.text }}</textarea>
+              {% if item.kind == 'internal' %}
+              <div class="form-text">
+                Variables available: <code>{{ '$' }}{var}</code> style placeholders already in the text above — keep their names as-is, just edit the surrounding wording/instructions.
+              </div>
+              {% else %}
               <button type="button" class="btn btn-outline-secondary btn-sm mt-2 copy-btn" data-name="{{ item.name }}">
                 <i class="bi bi-clipboard me-1"></i>Copy
               </button>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -62,6 +88,16 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
       ta.select();
       document.execCommand('copy');
     });
+  });
+});
+
+document.querySelectorAll('.reset-prompt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const name = btn.dataset.name;
+    if (!confirm(`Reset "${name}" to its default text? This discards your edits.`)) return;
+    fetch('/system_prompts/reset/' + name, {method: 'POST'})
+      .then(() => location.reload())
+      .catch(e => alert('Error: ' + e));
   });
 });
 </script>
