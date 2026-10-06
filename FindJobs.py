@@ -419,7 +419,7 @@ def _save_local_config(updates: dict):
     cfg.update(updates)
     LOCAL_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
-DEFAULT_JOB_RETENTION_DAYS = 45  # within the requested 30-60 day range
+DEFAULT_JOB_RETENTION_DAYS = 45  # Settings page allows 7-60 days; this is just the unset-profile default
 
 def _parse_job_date(value: str):
     """date_posted formats vary a lot by source: arbeitnow gives a unix
