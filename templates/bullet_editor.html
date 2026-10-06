@@ -27,11 +27,16 @@
           <i class="bi bi-upload me-1"></i>Import CSV
         </button>
       </form>
+      {% if rows %}
+      <button type="submit" form="bullet-save-form" class="btn btn-primary btn-sm ms-auto">
+        <i class="bi bi-save me-1"></i>Save All
+      </button>
+      {% endif %}
     </div>
   </div>
 
   <div class="col-12">
-    <form method="POST" action="/bullet_editor/save" accept-charset="UTF-8">
+    <form method="POST" action="/bullet_editor/save" id="bullet-save-form" accept-charset="UTF-8">
       <div id="bullet-scroll" class="border rounded p-2" style="max-height: 80vh; overflow-y: auto;">
       {% for row in rows %}
       <div class="card mb-3">

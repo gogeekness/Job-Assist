@@ -6,14 +6,9 @@
   <div class="col-12">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h5 class="mb-0"><i class="bi bi-chat-quote me-1"></i>Prompts</h5>
-      <div class="d-flex align-items-center gap-2">
-        <a href="/bullet_editor" class="btn btn-outline-secondary btn-sm">
-          <i class="bi bi-list-check me-1"></i>Bullet Bank
-        </a>
-        <button type="submit" form="prompts-form" class="btn btn-primary btn-sm">
-          <i class="bi bi-save me-1"></i>Save All
-        </button>
-      </div>
+      <button type="submit" form="prompts-form" class="btn btn-primary btn-sm">
+        <i class="bi bi-save me-1"></i>Save All
+      </button>
     </div>
     <div class="text-muted small mb-2"><strong>Internal</strong> = what this app actually sends to your LLM backend. <strong>External</strong> = for pasting into Claude, ChatGPT, or another AI tool by hand. Both save per profile, no restart needed.</div>
     {% if saved %}
