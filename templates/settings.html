@@ -53,20 +53,26 @@
     <div class="card h-100">
       <div class="card-header fw-semibold">
         <i class="bi bi-building me-1"></i>Greenhouse Boards
-        <span class="text-muted small ms-2">one token per line</span>
+        <span class="text-muted small ms-2">one company per line</span>
       </div>
       <div class="card-body">
         <p class="text-muted small">
           Which <strong>companies'</strong> Greenhouse career pages to pull every open posting
-          from (<code>boards-api.greenhouse.io/v1/boards/&lt;token&gt;/jobs</code>) &mdash; each line
-          is one company's board token, e.g. <code>gitlab</code>, <code>datadog</code>. This is a
-          per-company allowlist, not a keyword search: Greenhouse has no cross-company search, so a
-          company not listed here contributes nothing, no matter how well its postings would match.
-          For a keyword-driven search instead, see Search Keywords below.
+          from (<code>boards-api.greenhouse.io/v1/boards/&lt;token&gt;/jobs</code>) &mdash; the
+          <strong>token</strong> is the only thing Greenhouse's API actually needs and is the part
+          that must be exact (it's the literal URL path, e.g. the <code>gitlab</code> in
+          <code>boards-api.greenhouse.io/v1/boards/gitlab/jobs</code> &mdash; check a company's
+          Greenhouse board URL if unsure). The <strong>name</strong> is just a readable label used
+          for the job's Company column/search instead of showing that raw token. Format per line:
+          <code>Company Name = token</code> &mdash; or just a bare token with no name if you don't
+          care about the display label. This is a per-company allowlist, not a keyword search:
+          Greenhouse has no cross-company search, so a company not listed here contributes nothing,
+          no matter how well its postings would match. For a keyword-driven search instead, see
+          Search Keywords below.
         </p>
         <form method="POST" action="/settings/boards" accept-charset="UTF-8">
           <textarea name="boards" class="form-control font-monospace" rows="8"
-                    placeholder="openai&#10;gitlab&#10;elastic&#10;datadog">{{ boards }}</textarea>
+                    placeholder="GitLab = gitlab&#10;Elastic = elastic&#10;Datadog = datadog">{{ boards }}</textarea>
           <button type="submit" class="btn btn-primary btn-sm mt-2">
             <i class="bi bi-save me-1"></i>Save boards.txt
           </button>

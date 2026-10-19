@@ -534,6 +534,31 @@ def _log_finish(conn, lid, count, error):
     )
     conn.commit()
 
+def _load_boards(boards_file) -> dict:
+    """Company display name -> Greenhouse board token, from "Name = token"
+    lines in boards.txt (the token is the only thing Greenhouse's API
+    actually needs -- boards-api.greenhouse.io/v1/boards/<token>/jobs --
+    the name is purely for display/search instead of showing the raw
+    slug as the company). A bare line with no "=" is accepted too (quick
+    entry, or the old one-token-per-line format) -- the token itself
+    becomes its own display name, same as the harvester's old behavior."""
+    bf = Path(boards_file)
+    if not bf.exists():
+        return {}
+    boards = {}
+    for line in bf.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "=" in line:
+            name, token = line.split("=", 1)
+            name, token = name.strip(), token.strip()
+        else:
+            name = token = line
+        if token:
+            boards[name] = token
+    return boards
+
 def _do_harvest_greenhouse(boards_file):
     source = "greenhouse"
     _set_status(source, "running")
@@ -541,9 +566,7 @@ def _do_harvest_greenhouse(boards_file):
     lid = _log_start(conn, source)
     count, error = 0, None
     try:
-        bf = Path(boards_file)
-        tokens = [x.strip() for x in bf.read_text().splitlines() if x.strip()] if bf.exists() else []
-        for token in tokens:
+        for company_name, token in _load_boards(boards_file).items():
             try:
                 url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
                 jobs = requests.get(url, timeout=TIMEOUT).json().get("jobs", [])
@@ -557,12 +580,12 @@ def _do_harvest_greenhouse(boards_file):
                 else:
                     location = safe_get(j, ["location","name"], "")
                 desc     = strip_html(safe_get(j, ["content"], ""))
-                combined = f"{title} {token} {location} {desc}"
+                combined = f"{title} {company_name} {location} {desc}"
                 city, country, rg = parse_location(location)
                 upsert_job(conn, {
                     "source": f"greenhouse:{token}", "source_type": "company",
                     "ats": "greenhouse", "external_id": str(safe_get(j,["id"],"")),
-                    "company": token, "company_size": None,
+                    "company": company_name, "company_size": None,
                     "title": title, "location": location, "city": city,
                     "country": country, "region_group": rg,
                     "language": detect_language(combined),
