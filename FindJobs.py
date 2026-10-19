@@ -541,7 +541,8 @@ def _do_harvest_greenhouse(boards_file):
     lid = _log_start(conn, source)
     count, error = 0, None
     try:
-        tokens = [x.strip() for x in Path(boards_file).read_text().splitlines() if x.strip()]
+        bf = Path(boards_file)
+        tokens = [x.strip() for x in bf.read_text().splitlines() if x.strip()] if bf.exists() else []
         for token in tokens:
             try:
                 url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
