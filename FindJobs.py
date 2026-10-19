@@ -37,6 +37,7 @@ import db
 
 BASE         = Path(__file__).parent
 BOARDS_FILE  = BASE / "boards.txt"
+SEARCH_TERMS_FILE = BASE / "search_terms.txt"
 LOCAL_CONFIG_PATH = BASE / "config.local.json"
 
 TIMEOUT = 20
@@ -698,6 +699,20 @@ IT_SEARCH_LOCATIONS = [
 IT_SEARCH_TERMS = ["Linux system administrator", "DevOps engineer Linux",
                     "Site Reliability Engineer", "Platform Engineer Linux"]
 
+def _load_search_terms() -> list:
+    """User-editable job titles/fields to search for on LinkedIn/Indeed/
+    Glassdoor/ZipRecruiter via jobspy (Settings -> Search Keywords) --
+    company-non-specific, unlike boards.txt's Greenhouse allowlist. Falls
+    back to IT_SEARCH_TERMS if the file is missing/empty so a profile that
+    hasn't touched this setting keeps today's behavior instead of
+    silently harvesting nothing (the boards.txt-empty-list bug this
+    mirrors, but defaulted instead of left to surprise someone)."""
+    if SEARCH_TERMS_FILE.exists():
+        terms = [t.strip() for t in SEARCH_TERMS_FILE.read_text(encoding="utf-8").splitlines() if t.strip()]
+        if terms:
+            return terms
+    return IT_SEARCH_TERMS
+
 def _do_harvest_jobspy():
     """speedyapply/JobSpy — reaches LinkedIn/Indeed/Glassdoor/ZipRecruiter,
     which the API-only harvesters above can't touch."""
@@ -722,8 +737,9 @@ def _do_harvest_jobspy():
             return str(val) if val else default
 
         sites = ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
+        search_terms = _load_search_terms()
         for location_name, country_code in IT_SEARCH_LOCATIONS:
-            for term in IT_SEARCH_TERMS:
+            for term in search_terms:
                 try:
                     df = jobspy.scrape_jobs(
                         site_name=sites, search_term=term,
@@ -814,7 +830,7 @@ def _do_harvest_linkedin_alt():
                     raise
 
         for location_name, geo_id in LINKEDIN_GEO_IDS.items():
-            for term in IT_SEARCH_TERMS[:1]:
+            for term in _load_search_terms()[:1]:
                 try:
                     url = ("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
                            f"?keywords={term.replace(' ', '%20')}&location={location_name}"
@@ -1568,6 +1584,7 @@ def harvest_status():
 @app.route("/settings")
 def settings():
     boards    = BOARDS_FILE.read_text() if BOARDS_FILE.exists() else ""
+    search_terms = "\n".join(_load_search_terms())
 
     import cv_bank
     store = cv_bank.build_bullet_store()
@@ -1622,7 +1639,7 @@ def settings():
     except (TypeError, ValueError):
         generation_balance = 5
     return render_template("settings.html",
-        boards=boards, bank_stats=bank_stats,
+        boards=boards, search_terms=search_terms, bank_stats=bank_stats,
         db_stats=db_stats, llm_backend=llm_config["backend"], llm_config=llm_config,
         retention_days=retention_days, cleaned=request.args.get("cleaned"),
         generation_balance=generation_balance,
@@ -1631,6 +1648,11 @@ def settings():
 @app.route("/settings/boards",    methods=["POST"])
 def save_boards():
     BOARDS_FILE.write_text(request.form.get("boards",""), encoding="utf-8")
+    return redirect(url_for("settings"))
+
+@app.route("/settings/search_terms", methods=["POST"])
+def save_search_terms():
+    SEARCH_TERMS_FILE.write_text(request.form.get("search_terms",""), encoding="utf-8")
     return redirect(url_for("settings"))
 
 @app.route("/settings/cv_paths", methods=["POST"])

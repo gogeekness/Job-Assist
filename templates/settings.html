@@ -56,11 +56,49 @@
         <span class="text-muted small ms-2">one token per line</span>
       </div>
       <div class="card-body">
+        <p class="text-muted small">
+          Which <strong>companies'</strong> Greenhouse career pages to pull every open posting
+          from (<code>boards-api.greenhouse.io/v1/boards/&lt;token&gt;/jobs</code>) &mdash; each line
+          is one company's board token, e.g. <code>gitlab</code>, <code>datadog</code>. This is a
+          per-company allowlist, not a keyword search: Greenhouse has no cross-company search, so a
+          company not listed here contributes nothing, no matter how well its postings would match.
+          For a keyword-driven search instead, see Search Keywords below.
+        </p>
         <form method="POST" action="/settings/boards" accept-charset="UTF-8">
           <textarea name="boards" class="form-control font-monospace" rows="8"
                     placeholder="openai&#10;gitlab&#10;elastic&#10;datadog">{{ boards }}</textarea>
           <button type="submit" class="btn btn-primary btn-sm mt-2">
             <i class="bi bi-save me-1"></i>Save boards.txt
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search keywords -->
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-search me-1"></i>Search Keywords
+        <span class="text-muted small ms-2">one phrase per line</span>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          Job titles/fields to actually search for on <strong>LinkedIn, Indeed, Glassdoor, and
+          ZipRecruiter</strong> (via jobspy) &mdash; e.g. <code>Linux system administrator</code>,
+          <code>DevOps engineer</code>. Each line is a separate search, run across every configured
+          location. <strong>Company-non-specific</strong> &mdash; this isn't tied to any particular
+          employer (that's what Greenhouse Boards, above, is for); pick whatever job titles or
+          fields match what you're looking for (IT/Linux, Medical, Space, Manufacturing, anything).
+          Arbeitnow, EURAXESS, and Greenhouse don't use this list &mdash; they either pull everything
+          unfiltered or are restricted by company instead, since they don't support keyword search.
+          Leave blank to use the app's built-in default terms.
+        </p>
+        <form method="POST" action="/settings/search_terms" accept-charset="UTF-8">
+          <textarea name="search_terms" class="form-control font-monospace" rows="6"
+                    placeholder="Linux system administrator&#10;DevOps engineer&#10;Site Reliability Engineer">{{ search_terms }}</textarea>
+          <button type="submit" class="btn btn-primary btn-sm mt-2">
+            <i class="bi bi-save me-1"></i>Save search terms
           </button>
         </form>
       </div>
