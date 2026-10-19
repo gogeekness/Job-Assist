@@ -27,6 +27,7 @@ bullet-proof-out.md
 LateX_Docs
 CVs_Job_Dos
 generated/
+boards.txt
 
 # local settings/config (user-specific paths, API keys)
 .env
