@@ -743,41 +743,87 @@ _DEFAULT_OPEN_QUESTION = {
            "einfließen kann -- was ist die größte Priorität für diese Rolle in den ersten Monaten?"),
 }
 
-_COVER_LETTER_WRAPPER = {
-    "en": {"greeting": "Dear Hiring Team at {company},", "opening": "I'm writing about the {title} opening.",
-           "signoff": "Best regards,\n{name}"},
-    "de": {"greeting": "Sehr geehrtes Team von {company},", "opening": "ich schreibe Ihnen bezüglich der Position als {title}.",
-           "signoff": "Mit freundlichen Grüßen,\n{name}"},
+# Only the plain-text fallback's opening sentence lives here -- the
+# greeting and sign-off belong to each profile's cover_letter.tex.jinja
+# (so they're in that profile's own language and the user can edit them).
+_DEFAULT_THANKS = {
+    "en": "Thank you for your time and consideration.",
+    "de": "Vielen Dank für Ihre Zeit und Ihre Aufmerksamkeit.",
 }
+
+_COVER_LETTER_OPENING = {
+    "en": "I'm writing about the {title} opening.",
+    "de": "ich schreibe Ihnen bezüglich der Position als {title}.",
+}
+
+# A model asked for "the letter body only" still sometimes adds a greeting,
+# a sign-off, or an OPENING:/BODY: style label -- all of which the template
+# already supplies -- so they're stripped before the paragraphs are split.
+_LETTER_LABEL_RE = re.compile(r"^\s*(?:OPENING|INTRO|BODY|CLOSING|CONCLUSION)\s*:\s*", re.IGNORECASE)
+_LETTER_GREETING_RE = re.compile(r"^\s*(?:dear\b|hello\b|hi\b|sehr geehrte|liebe[rs]?\b|guten tag)", re.IGNORECASE)
+_LETTER_SIGNOFF_RE = re.compile(
+    r"^\s*(?:best regards|kind regards|warm regards|regards|sincerely|yours\b|"
+    r"mit freundlichen|freundliche grüße|viele grüße|beste grüße|herzliche grüße)", re.IGNORECASE)
+
+
+def letter_paragraphs(text: str) -> list:
+    """A generated cover letter as a clean list of paragraphs (blank-line
+    separated; single newlines inside a paragraph are just wrapping)."""
+    # a label (old three-block style output) always starts a new paragraph,
+    # even when the model didn't leave a blank line before it
+    text = re.sub(r"\n(?=\s*(?:OPENING|INTRO|BODY|CLOSING|CONCLUSION)\s*:)", "\n\n", text or "", flags=re.IGNORECASE)
+    paras = [re.sub(r"\s*\n\s*", " ", p).strip() for p in re.split(r"\n\s*\n", text.strip())]
+    paras = [_LETTER_LABEL_RE.sub("", p).strip() for p in paras]
+    paras = [p for p in paras if p]
+    if paras and _LETTER_GREETING_RE.match(paras[0]) and len(paras[0].split()) <= 12:
+        paras.pop(0)
+    while paras:
+        last = paras[-1]
+        if _LETTER_SIGNOFF_RE.match(last) and len(last.split()) <= 12:
+            paras.pop()                      # "Best regards, Richard"
+        elif len(paras) >= 2 and _LETTER_SIGNOFF_RE.match(paras[-2]) and len(last.split()) <= 5:
+            del paras[-2:]                   # "Best regards," then a separate name line
+        else:
+            break
+    return paras
+
+
+def letter_blocks(text: str) -> dict:
+    """Split a generated letter into the template's three slots: the first
+    paragraph is the intro, the last is the conclusion, everything between
+    is the body (blank-line separated). Two paragraphs -> no body; one ->
+    just an intro."""
+    paras = letter_paragraphs(text)
+    if not paras:
+        return {"intro": "", "body": "", "conclusion": ""}
+    if len(paras) == 1:
+        return {"intro": paras[0], "body": "", "conclusion": ""}
+    return {"intro": paras[0], "body": "\n\n".join(paras[1:-1]), "conclusion": paras[-1]}
 
 
 def generate_cover_letter(job: dict, groups: list, profile: dict, on_progress=None) -> str:
-    """Fixed template (guaranteed shape/reliability) with three small LLM-
-    filled paragraph-sized gaps -- OPENING/BODY/CLOSING, roughly 3/4/3
-    sentences -- rather than asking the model to compose a whole letter
-    freeform. A smaller/local model (e.g. Ollama) is much more reliable at
-    one focused block at a time than at holding together a whole coherent
-    letter; each gap also degrades independently (a bad/missing block
-    doesn't cost the others) instead of an all-or-nothing fallback to a
-    generic template on any failure. Language is a property of the active
-    profile (see _active_lang), not a per-call choice -- the achievement
-    bullets it draws from already come from that profile's own bullet
-    bank (see generate_for_job), so the whole letter stays one language."""
+    """The letter body as plain text -- paragraphs separated by blank lines,
+    no greeting and no sign-off (the profile's cover_letter.tex.jinja
+    supplies both, in that profile's language). The model writes a normal
+    letter; render_cover_letter_tex then splits it by paragraph into the
+    template's intro (first paragraph), body (the middle ones) and
+    conclusion (last). If the LLM is unavailable, or returns fewer than
+    two usable paragraphs, a short factual three-paragraph fallback is
+    used instead. Language is a property of the active profile (see
+    _active_lang), not a per-call choice -- the achievement bullets it
+    draws from already come from that profile's own bullet bank (see
+    generate_for_job), so the whole letter stays one language."""
     lang = _active_lang()
-    wrapper = _COVER_LETTER_WRAPPER.get(lang, _COVER_LETTER_WRAPPER["en"])
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
     top = by_relevance[:2]
     company = job.get("company") or "your team"
     title = job.get("title") or "this role"
-    name = profile.get("name", "")
 
-    # factual fallbacks -- used whole-cloth if the LLM call fails entirely,
-    # or per-block if only that block's regex match comes up empty
-    fallback_opening = f"{wrapper['opening'].format(title=title)}".strip()
+    fallback_opening = _COVER_LETTER_OPENING.get(lang, _COVER_LETTER_OPENING["en"]).format(title=title).strip()
     fallback_body = top[0]["summary_raw"] if top else ""
-    fallback_closing = _DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"])
-
-    opening, body, closing = fallback_opening, fallback_body, fallback_closing
+    fallback_closing = (_DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"]) + " "
+                        + _DEFAULT_THANKS.get(lang, _DEFAULT_THANKS["en"]))
+    fallback ="\n\n".join(p for p in (fallback_opening, fallback_body, fallback_closing) if p)
 
     if profile_mod.llm_config()["llm_backend"] != "stub":
         achievements = "\n".join(
@@ -791,26 +837,14 @@ def generate_cover_letter(job: dict, groups: list, profile: dict, on_progress=No
         )
 
         try:
-            raw = _call_llm(prompt, max_tokens=500, on_progress=on_progress)
-            opening_match = re.search(r"OPENING:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
-            body_match = re.search(r"BODY:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
-            closing_match = re.search(r"CLOSING:\s*(.+?)(?=\n[A-Z]+:|\Z)", raw, re.DOTALL)
-            if opening_match and opening_match.group(1).strip():
-                opening = opening_match.group(1).strip()
-            if body_match and body_match.group(1).strip():
-                body = body_match.group(1).strip()
-            if closing_match and closing_match.group(1).strip():
-                closing = closing_match.group(1).strip()
+            raw = _call_llm(prompt, max_tokens=800, on_progress=on_progress)
+            paras = letter_paragraphs(raw)
+            if len(paras) >= 2:
+                return "\n\n".join(paras)
         except Exception:
-            pass  # keep the factual fallback values for whichever block(s) didn't fill
+            pass  # fall through to the factual fallback below
 
-    return (
-        f"{wrapper['greeting'].format(company=company)}\n\n"
-        f"{opening}\n\n"
-        f"{body}\n\n"
-        f"{closing}\n\n"
-        f"{wrapper['signoff'].format(name=name)}"
-    )
+    return fallback
 
 
 def generate_intro(job: dict, groups: list, profile: dict, on_progress=None) -> str:
@@ -864,30 +898,26 @@ def generate_intro(job: dict, groups: list, profile: dict, on_progress=None) -> 
     return latex_escape(f"{base} with hands-on experience across {employers_txt}.")
 
 
-def render_tex_single(job: dict, profile: dict, groups: list,
-                       skill_categories: list, intro: str) -> str:
-    """Single-column style: skills near the top, education/certificates at
-    the bottom. Each position's "earlier" flag (build_position_groups,
-    driven by its own keyword relevance to THIS job vs
-    EARLIER_SCORE_THRESHOLD -- not a fixed property of the position) sends
-    it to a compact one-line list at the end of the experience section
-    instead of a full jobheader+bullets entry -- everything else stays
-    chronological within its own group."""
-    labels = SECTION_LABELS.get(_active_lang(), SECTION_LABELS["en"])
-    full_groups = [g for g in groups if not g.get("earlier")]
-    earlier_groups = [g for g in groups if g.get("earlier")]
-
-    template_path = profile_mod.template_path()
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(template_path.parent)),
+def _tex_env(template_dir: Path, variable_delims=(r"\VAR{", "}")) -> jinja2.Environment:
+    """The LaTeX-safe Jinja environment every template here uses: plain
+    { } is LaTeX syntax, so logic is \\BLOCK{...} and comments are \\#{...}.
+    Values default to \\VAR{...} (the CV template); the cover letter
+    template passes ("<<", ">>") so its placeholders read <<intro>>."""
+    return jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(template_dir)),
         block_start_string=r"\BLOCK{", block_end_string="}",
-        variable_start_string=r"\VAR{", variable_end_string="}",
+        variable_start_string=variable_delims[0], variable_end_string=variable_delims[1],
         comment_start_string=r"\#{", comment_end_string="}",
         trim_blocks=True, lstrip_blocks=True,
         autoescape=False,
     )
-    template = env.get_template(template_path.name)
 
+
+def _header_context(job: dict, profile: dict) -> dict:
+    """The header values shared by the CV and the cover letter (name, the
+    job's title, contact line, nationality/visa, languages, links, photo),
+    already LaTeX-escaped -- one definition so both documents' headers
+    always say the same thing."""
     languages = [{"name": latex_escape(l["name"]), "level": latex_escape(l["level"])}
                  for l in profile.get("languages", [])]
     languages_line = " / ".join(f"{l['name']} {l['level']}" for l in languages)
@@ -910,7 +940,7 @@ def render_tex_single(job: dict, profile: dict, groups: list,
         if p.exists():
             photo_path = str(p)
 
-    return template.render(
+    return dict(
         photo_path=photo_path,
         name=latex_escape(profile.get("name", "")),
         title=latex_escape(strip_gender_marker(job.get("title")) or profile.get("default_title", "")),
@@ -920,6 +950,27 @@ def render_tex_single(job: dict, profile: dict, groups: list,
         nationality_line=nationality_line,
         languages_line=languages_line,
         links=[{"label": latex_escape(l["label"]), "url": latex_escape_url(l["url"])} for l in profile.get("links", [])],
+    )
+
+
+def render_tex_single(job: dict, profile: dict, groups: list,
+                       skill_categories: list, intro: str) -> str:
+    """Single-column style: skills near the top, education/certificates at
+    the bottom. Each position's "earlier" flag (build_position_groups,
+    driven by its own keyword relevance to THIS job vs
+    EARLIER_SCORE_THRESHOLD -- not a fixed property of the position) sends
+    it to a compact one-line list at the end of the experience section
+    instead of a full jobheader+bullets entry -- everything else stays
+    chronological within its own group."""
+    labels = SECTION_LABELS.get(_active_lang(), SECTION_LABELS["en"])
+    full_groups = [g for g in groups if not g.get("earlier")]
+    earlier_groups = [g for g in groups if g.get("earlier")]
+
+    template_path = profile_mod.template_path()
+    template = _tex_env(template_path.parent).get_template(template_path.name)
+
+    return template.render(
+        **_header_context(job, profile),
         # no _colon_break here (unlike the sidebar style) -- this layout has
         # a full-width column, no need to force "Degree: Major" onto two lines
         education=[{"school": latex_escape(e["school"]),
@@ -936,6 +987,46 @@ def render_tex_single(job: dict, profile: dict, groups: list,
         intro=intro,
         labels=labels,
     )
+
+
+def _paragraphs_tex(text: str) -> str:
+    """Blank-line separated paragraphs -> LaTeX-escaped, same separation."""
+    return "\n\n".join(latex_escape(p) for p in text.split("\n\n") if p.strip())
+
+
+def render_cover_letter_tex(job: dict, profile: dict, letter_text: str) -> str:
+    """The profile's cover_letter.tex.jinja filled in with the generated
+    letter: its first paragraph is <<intro>>, the last <<conclusion>>,
+    everything between <<body>> (see letter_blocks). The header comes from
+    the same _header_context as the CV, so the two documents match."""
+    template_path = profile_mod.cover_letter_template_path()
+    template = _tex_env(template_path.parent, variable_delims=("<<", ">>")).get_template(template_path.name)
+    blocks = letter_blocks(letter_text)
+    return template.render(
+        **_header_context(job, profile),
+        company=latex_escape(job.get("company") or ""),
+        intro=_paragraphs_tex(blocks["intro"]),
+        body=_paragraphs_tex(blocks["body"]),
+        conclusion=_paragraphs_tex(blocks["conclusion"]),
+    )
+
+
+def build_cover_letter_pdf(job: dict, letter_path: Path) -> dict:
+    """Render and compile the cover letter next to its plain-text source
+    (cover_letter.txt -> cover_letter.tex/.pdf). The .txt stays the one
+    thing anyone edits; re-running this regenerates the PDF from it."""
+    tex_path = letter_path.with_suffix(".tex")
+    tex_path.write_text(
+        render_cover_letter_tex(job, profile_mod.load_profile(), letter_path.read_text(encoding="utf-8")),
+        encoding="utf-8")
+    result = compile_pdf(tex_path)
+    return {
+        "ok": result["ok"],
+        "page_count": result["page_count"],
+        "tex_path": str(tex_path),
+        "pdf_path": str(tex_path.with_suffix(".pdf")) if result["ok"] else None,
+        "log_tail": result["log_tail"],
+    }
 
 
 def _pdf_page_count(pdf_path: Path) -> int:
@@ -1089,8 +1180,17 @@ def generate_for_job(job_id: int, on_progress=None) -> dict:
     cover_letter_dir.mkdir(parents=True, exist_ok=True)
     cover_letter_path = cover_letter_dir / "cover_letter.txt"
     cover_letter_path.write_text(generate_cover_letter(job, groups, profile_data, on_progress=_bump), encoding="utf-8")
+    try:
+        cover = build_cover_letter_pdf(job, cover_letter_path)
+    except Exception as e:  # a template problem must never cost the CV itself
+        cover = {"ok": False, "page_count": -1, "tex_path": None, "pdf_path": None,
+                 "log_tail": f"{type(e).__name__}: {e}"}
 
     return {
+        "cover_letter_ok": cover["ok"],
+        "cover_letter_page_count": cover["page_count"],
+        "cover_letter_pdf_path": cover["pdf_path"],
+        "cover_letter_log_tail": cover["log_tail"],
         "ok": result["ok"],
         "fit_ok": result["ok"] and result["page_count"] == 2 and result["overfull_vbox"] == 0,
         "page_count": result["page_count"],

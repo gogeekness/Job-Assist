@@ -22,6 +22,23 @@
 </div>
 {% endif %}
 
+{% if job.cover_letter_path %}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if active_tab != 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-cv" type="button" role="tab">
+      <i class="bi bi-file-earmark-pdf me-1"></i>CV
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if active_tab == 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-letter" type="button" role="tab">
+      <i class="bi bi-envelope me-1"></i>Cover Letter
+    </button>
+  </li>
+</ul>
+{% endif %}
+
+<div class="tab-content">
+<div class="tab-pane fade {% if active_tab != 'letter' %}show active{% endif %}" id="pane-cv" role="tabpanel">
 <div class="row g-3">
   <!-- PDF preview -->
   <div class="col-12 col-lg-6">
@@ -90,29 +107,47 @@
   </div>
 </div>
 
+</div><!-- /pane-cv -->
+
 {% if job.cover_letter_path %}
-<div class="row g-3 mt-1">
+<div class="tab-pane fade {% if active_tab == 'letter' %}show active{% endif %}" id="pane-letter" role="tabpanel">
+<div class="row g-3">
   <div class="col-12">
     <form method="POST" action="/jobs/{{ job.id }}/cover_letter" accept-charset="UTF-8">
       <div class="card">
         <div class="card-header fw-semibold">
           <i class="bi bi-envelope me-1"></i>Cover Letter
-          <span class="text-muted small ms-2">short pitch, factual, edit freely</span>
+          <span class="text-muted small ms-2">plain paragraphs, edit freely -- the first paragraph is the intro, the last the conclusion, the ones between the body</span>
         </div>
+        {% if cover_letter_failed %}
+        <div class="alert alert-danger py-2 small m-2 mb-0">The cover letter PDF could not be built -- check the profile's cover letter template (Templates &rarr; Cover Letter).</div>
+        {% endif %}
         <div class="card-body p-2">
-          <textarea name="cover_letter_text" class="form-control" style="height:220px;"
+          <textarea name="cover_letter_text" class="form-control" style="height:260px;"
                     spellcheck="true">{{ cover_letter_text }}</textarea>
         </div>
-        <div class="card-footer">
+        <div class="card-footer d-flex gap-2 align-items-center">
           <button type="submit" class="btn btn-primary btn-sm">
-            <i class="bi bi-save me-1"></i>Save
+            <i class="bi bi-save me-1"></i>Save &amp; re-render PDF
           </button>
+          {% if cover_letter_pdf %}
+          <a href="/generated/{{ job.id }}/cover_letter.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-box-arrow-up-right me-1"></i>Open PDF
+          </a>
+          {% endif %}
         </div>
       </div>
     </form>
   </div>
+  {% if cover_letter_pdf %}
+  <div class="col-12">
+    <embed src="/generated/{{ job.id }}/cover_letter.pdf" type="application/pdf" style="width:100%; height:80vh;">
+  </div>
+  {% endif %}
 </div>
+</div><!-- /pane-letter -->
 {% endif %}
+</div><!-- /tab-content -->
 
 {% if job.cv_status == 'approved' and job.url %}
 <div class="alert alert-success mt-3 d-flex justify-content-between align-items-center">

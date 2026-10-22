@@ -85,6 +85,19 @@ def template_path() -> Path:
     d = active_profile_dir()
     return (d / "template.tex.jinja") if d else (BASE / "tex_templates" / "cv_template.tex.jinja")
 
+def cover_letter_template_path() -> Path:
+    """This profile's own cover letter LaTeX template -- same format as the
+    CV template (template_path) but a much smaller one: header, colors,
+    page setup, and a Motivation section filled from four text blocks.
+    A profile created before this file existed (or whose copy was
+    deleted) falls back to the skeleton's, so cover letter generation
+    never breaks on a missing template."""
+    d = active_profile_dir()
+    if d:
+        own = d / "cover_letter.tex.jinja"
+        return own if own.exists() else (SKELETON_DIR / "cover_letter.tex.jinja")
+    return BASE / "tex_templates" / "cover_letter.tex.jinja"
+
 def prompts_dir() -> Path:
     d = active_profile_dir()
     return (d / "prompts") if d else (BASE / "active-settings" / "prompts")
