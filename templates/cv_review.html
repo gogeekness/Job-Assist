@@ -111,39 +111,91 @@
 
 {% if job.cover_letter_path %}
 <div class="tab-pane {% if active_tab == 'letter' %}active{% endif %}" id="pane-letter" role="tabpanel">
+{% if letter_compile_error %}
+<div class="alert alert-danger">
+  <strong>Compile failed</strong> — fix the cover letter LaTeX below and recompile (or save the text at the bottom to rebuild it from the template).
+  <pre class="small mb-0 mt-2" style="max-height:200px; overflow:auto;">{{ letter_compile_error }}</pre>
+</div>
+{% endif %}
+
 <div class="row g-3">
+  <!-- PDF preview -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-pdf me-1"></i>PDF Preview</span>
+        <span class="d-flex gap-2">
+          {% if cover_letter_tex %}
+          <a href="/generated/{{ job.id }}/cover_letter.tex" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-code me-1"></i>Download .tex
+          </a>
+          {% endif %}
+          {% if cover_letter_pdf %}
+          <a href="/generated/{{ job.id }}/cover_letter.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-download me-1"></i>Open / Download PDF
+          </a>
+          {% endif %}
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {% if cover_letter_pdf %}
+        <embed src="/generated/{{ job.id }}/cover_letter.pdf" type="application/pdf" style="width:100%; height:80vh;">
+        {% else %}
+        <div class="p-4 text-muted">No PDF yet — save the letter text below to build it from the template.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Editable .tex -->
+  <div class="col-12 col-lg-6">
+    <form method="POST" action="/jobs/{{ job.id }}/cover_letter/recompile" class="h-100 d-flex flex-column" accept-charset="UTF-8">
+      <div class="card h-100">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span>
+            <i class="bi bi-code-slash me-1"></i>LaTeX source
+            <span class="text-muted small ms-2 d-none d-md-inline">edit here, then recompile</span>
+          </span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="copy-letter-tex-btn">
+            <i class="bi bi-clipboard me-1"></i>Copy to Clipboard
+          </button>
+        </div>
+        <div class="card-body p-2">
+          <textarea name="cover_letter_tex" id="letter-tex-content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
+                    spellcheck="false">{{ cover_letter_tex }}</textarea>
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary btn-sm" {% if not cover_letter_tex %}disabled{% endif %}>
+            <i class="bi bi-arrow-clockwise me-1"></i>Recompile
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- The generated letter as plain text -- the source the LaTeX above is built from -->
+<div class="row g-3 mt-1">
   <div class="col-12">
     <form method="POST" action="/jobs/{{ job.id }}/cover_letter" accept-charset="UTF-8">
       <div class="card">
         <div class="card-header fw-semibold">
-          <i class="bi bi-envelope me-1"></i>Cover Letter
+          <i class="bi bi-envelope me-1"></i>Letter text
           <span class="text-muted small ms-2">plain paragraphs, edit freely -- the first paragraph is the intro, the last the conclusion, the ones between the body</span>
         </div>
-        {% if cover_letter_failed %}
-        <div class="alert alert-danger py-2 small m-2 mb-0">The cover letter PDF could not be built -- check the profile's cover letter template (Templates &rarr; Cover Letter).</div>
-        {% endif %}
         <div class="card-body p-2">
           <textarea name="cover_letter_text" class="form-control" style="height:260px;"
                     spellcheck="true">{{ cover_letter_text }}</textarea>
         </div>
         <div class="card-footer d-flex gap-2 align-items-center">
           <button type="submit" class="btn btn-primary btn-sm">
-            <i class="bi bi-save me-1"></i>Save &amp; re-render PDF
+            <i class="bi bi-save me-1"></i>Save text &amp; rebuild LaTeX + PDF
           </button>
-          {% if cover_letter_pdf %}
-          <a href="/generated/{{ job.id }}/cover_letter.pdf" target="_blank" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-box-arrow-up-right me-1"></i>Open PDF
-          </a>
-          {% endif %}
+          <span class="form-text mb-0">Rebuilds the LaTeX above from this profile's cover letter template, replacing any hand edits made there.</span>
         </div>
       </div>
     </form>
   </div>
-  {% if cover_letter_pdf %}
-  <div class="col-12">
-    <embed src="/generated/{{ job.id }}/cover_letter.pdf" type="application/pdf" style="width:100%; height:80vh;">
-  </div>
-  {% endif %}
 </div>
 </div><!-- /pane-letter -->
 {% endif %}
@@ -161,20 +213,25 @@
 
 {% block scripts %}
 <script>
-const copyTexBtn = document.getElementById('copy-tex-btn');
-copyTexBtn.addEventListener('click', function() {
-  const text = document.getElementById('tex-content').value;
-  const done = () => {
-    const original = copyTexBtn.innerHTML;
-    copyTexBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
-    setTimeout(() => { copyTexBtn.innerHTML = original; }, 1500);
-  };
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-  } else {
-    fallbackCopy(text, done);
-  }
-});
+function wireCopyButton(btnId, textareaId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener('click', function() {
+    const text = document.getElementById(textareaId).value;
+    const done = () => {
+      const original = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+      setTimeout(() => { btn.innerHTML = original; }, 1500);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  });
+}
+wireCopyButton('copy-tex-btn', 'tex-content');
+wireCopyButton('copy-letter-tex-btn', 'letter-tex-content');
 function fallbackCopy(text, done) {
   const ta = document.createElement('textarea');
   ta.value = text;

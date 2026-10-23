@@ -1500,28 +1500,45 @@ def generate_selected():
     threading.Thread(target=_do_generate_selected, args=(job_ids,), daemon=True).start()
     return jsonify({"started": "generate_selected", "total": len(job_ids)})
 
-@app.route("/jobs/<int:job_id>/cv")
-def cv_review(job_id):
+def _review_page(job_id, active_tab="cv", compile_error=None, tex_content=None,
+                 letter_error=None, letter_tex=None):
+    """The CV Review page -- one builder for the normal view and every
+    compile-failure view, so a failed recompile of either document still
+    shows the whole page (both tabs), with the failing text kept in its
+    editor instead of replaced by what's on disk."""
     conn = db.connect_db()
     row = conn.execute("SELECT * FROM jobs_full WHERE id=?", (job_id,)).fetchone()
     conn.close()
     if not row:
         return "Not found", 404
     job = dict(row)
-    tex_content, compile_error = "", None
-    if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
-        tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
+    if tex_content is None:
+        tex_content = ""
+        if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
+            tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
     cover_letter_text, cover_letter_pdf = "", False
+    if letter_tex is None:
+        letter_tex = ""
     if job.get("cover_letter_path") and Path(job["cover_letter_path"]).exists():
-        cover_letter_text = Path(job["cover_letter_path"]).read_text(encoding="utf-8")
-        cover_letter_pdf = Path(job["cover_letter_path"]).with_suffix(".pdf").exists()
+        letter_path = Path(job["cover_letter_path"])
+        cover_letter_text = letter_path.read_text(encoding="utf-8")
+        cover_letter_pdf = letter_path.with_suffix(".pdf").exists()
+        if not letter_tex and letter_path.with_suffix(".tex").exists():
+            letter_tex = letter_path.with_suffix(".tex").read_text(encoding="utf-8")
     return render_template("cv_review.html", job=job, tex_content=tex_content, compile_error=compile_error,
                             cover_letter_text=cover_letter_text, cover_letter_pdf=cover_letter_pdf,
-                            cover_letter_failed=request.args.get("cl") == "error",
-                            active_tab="letter" if request.args.get("tab") == "letter" else "cv")
+                            cover_letter_tex=letter_tex, letter_compile_error=letter_error,
+                            active_tab=active_tab)
+
+@app.route("/jobs/<int:job_id>/cv")
+def cv_review(job_id):
+    return _review_page(job_id, active_tab="letter" if request.args.get("tab") == "letter" else "cv")
 
 @app.route("/jobs/<int:job_id>/cover_letter", methods=["POST"])
 def save_cover_letter(job_id):
+    """Save the plain letter text and rebuild the LaTeX + PDF from it
+    (this replaces the LaTeX source -- hand edits to that are what
+    /cover_letter/recompile is for)."""
     conn = db.connect_db()
     row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
     conn.close()
@@ -1530,12 +1547,47 @@ def save_cover_letter(job_id):
     import generate_cv
     letter_path = Path(row["cover_letter_path"])
     letter_path.write_text(request.form.get("cover_letter_text", ""), encoding="utf-8")
-    # the .txt is the one thing anyone edits -- re-render the PDF from it
     try:
-        ok = generate_cv.build_cover_letter_pdf(generate_cv.get_job(job_id), letter_path)["ok"]
-    except Exception:
-        ok = False
-    return redirect(url_for("cv_review", job_id=job_id, tab="letter", cl=None if ok else "error"))
+        result = generate_cv.build_cover_letter_pdf(generate_cv.get_job(job_id), letter_path)
+    except Exception as e:
+        result = {"ok": False, "log_tail": f"{type(e).__name__}: {e}"}
+    if not result["ok"]:
+        return _review_page(job_id, active_tab="letter", letter_error=result["log_tail"])
+    return redirect(url_for("cv_review", job_id=job_id, tab="letter"))
+
+@app.route("/jobs/<int:job_id>/cover_letter/recompile", methods=["POST"])
+def cover_letter_recompile(job_id):
+    """Recompile hand-edited cover letter LaTeX -- same as the CV's
+    Recompile. (The plain text above it is untouched; saving that rebuilds
+    the LaTeX from the template and replaces these edits.)"""
+    conn = db.connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "No cover letter generated yet for this job", 400
+    import generate_cv
+    tex_path = Path(row["cover_letter_path"]).with_suffix(".tex")
+    tex_text = request.form.get("cover_letter_tex", "")
+    tex_path.write_text(tex_text, encoding="utf-8")
+    result = generate_cv.compile_pdf(tex_path)
+    if not result["ok"]:
+        return _review_page(job_id, active_tab="letter", letter_error=result["log_tail"], letter_tex=tex_text)
+    return redirect(url_for("cv_review", job_id=job_id, tab="letter"))
+
+@app.route("/generated/<int:job_id>/cover_letter.tex")
+def serve_cover_letter_tex(job_id):
+    conn = db.connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "Not found", 404
+    tex_path = Path(row["cover_letter_path"]).with_suffix(".tex").resolve()
+    if not _under_generated_root(tex_path) or not tex_path.exists():
+        return "Not found", 404
+    return Response(
+        tex_path.read_bytes(), mimetype="application/x-tex",
+        headers={"Content-Disposition": f'attachment; filename="{tex_path.name}"'},
+    )
 
 @app.route("/jobs/<int:job_id>/cv/recompile", methods=["POST"])
 def cv_recompile(job_id):
@@ -1553,9 +1605,7 @@ def cv_recompile(job_id):
         conn.commit()
     conn.close()
     if not result["ok"]:
-        job = get_job_for_review(job_id)
-        return render_template("cv_review.html", job=job, tex_content=tex_path.read_text(encoding="utf-8"),
-                                compile_error=result["log_tail"])
+        return _review_page(job_id, compile_error=result["log_tail"], tex_content=tex_path.read_text(encoding="utf-8"))
     return redirect(url_for("cv_review", job_id=job_id))
 
 @app.route("/jobs/<int:job_id>/cv/approve", methods=["POST"])
@@ -1565,12 +1615,6 @@ def cv_approve(job_id):
     conn.commit()
     conn.close()
     return redirect(url_for("job_detail", job_id=job_id))
-
-def get_job_for_review(job_id):
-    conn = db.connect_db()
-    row = conn.execute("SELECT * FROM jobs_full WHERE id=?", (job_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
 
 @app.route("/generated/<int:job_id>/cv.pdf")
 def serve_generated_pdf(job_id):
