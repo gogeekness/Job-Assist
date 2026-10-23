@@ -6,10 +6,10 @@ bullet-bank content -- never invented skills or experience.
 Usage:
     python3 generate_cv.py <job_id>
 
-Output: generated/<company>_<title>/cv.tex and cv.pdf
-
-Cover-letter generation is deliberately out of scope for this pass (per
-project decision: get CV generation solid first).
+Output: cv.tex and cv.pdf in the active profile's generated_cvs/<company>_<title>_<id>/,
+plus a cover_letter.txt/.tex/.pdf in its generated_cover_letters/ (the letter is
+rendered through the profile's own cover_letter.tex.jinja; see
+render_cover_letter_tex).
 """
 
 import json
@@ -34,8 +34,8 @@ def _load_prompt(name: str) -> Template:
 
 
 def _active_lang() -> str:
-    """Which fixed-text locale (SECTION_LABELS/LANGUAGE_NAMES/cover-letter
-    wrapper) to use -- a property of the active profile, not a per-call
+    """Which fixed-text locale (SECTION_LABELS/LANGUAGE_NAMES and the
+    cover letter's fallback sentences) to use -- a property of the active profile, not a per-call
     choice. Defaults to English for a profile that hasn't set it, or in
     legacy (no active profile) mode."""
     return profile_mod.load_config().get("lang", "en")
@@ -185,9 +185,18 @@ def strip_gender_marker(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _GENDER_MARKER_RE.sub("", text)).strip()
 
 
+# Invisible format characters (zero-width space/joiners, BOM, soft hyphen,
+# bidi marks) are not defined for pdflatex's utf8 input and abort the
+# build; the thin/narrow/figure spaces degrade to a plain space.
+_INVISIBLE_CHARS_RE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]")
+_ODD_SPACES_RE = re.compile("[\u2002-\u200a\u202f\u205f\u3000\u00a0]")
+
+
 def latex_escape(text: str) -> str:
     if not text:
         return ""
+    text = _INVISIBLE_CHARS_RE.sub("", text)
+    text = _ODD_SPACES_RE.sub(" ", text)
     text = _DECORATIVE_GLYPH_RE.sub("", text).strip()
     replacements = {
         "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$",
@@ -743,49 +752,116 @@ _DEFAULT_OPEN_QUESTION = {
            "einfließen kann -- was ist die größte Priorität für diese Rolle in den ersten Monaten?"),
 }
 
-# Only the plain-text fallback's opening sentence lives here -- the
-# greeting and sign-off belong to each profile's cover_letter.tex.jinja
-# (so they're in that profile's own language and the user can edit them).
 _DEFAULT_THANKS = {
     "en": "Thank you for your time and consideration.",
     "de": "Vielen Dank für Ihre Zeit und Ihre Aufmerksamkeit.",
 }
 
+# Opening sentence of the factual fallback letter. The greeting and sign-off
+# belong to each profile's cover_letter.tex.jinja (so they're in that
+# profile's own language and the user can edit them).
 _COVER_LETTER_OPENING = {
     "en": "I'm writing about the {title} opening.",
     "de": "ich schreibe Ihnen bezüglich der Position als {title}.",
 }
 
-# A model asked for "the letter body only" still sometimes adds a greeting,
-# a sign-off, or an OPENING:/BODY: style label -- all of which the template
-# already supplies -- so they're stripped before the paragraphs are split.
+# A model asked for "the letter body only" still sometimes adds a subject
+# line, a greeting, a sign-off or an OPENING:/BODY: style label -- all of
+# which the template already supplies -- so clean_generated_letter strips
+# them from the MODEL'S output. Only that: text a person typed or edited is
+# rendered exactly as written (letter_paragraphs never strips anything).
+# The patterns are deliberately strict -- a greeting is a short line that
+# ends the way a greeting does (comma/colon/!) and contains no sentence
+# punctuation (titles like "Dr." aside), a sign-off is a short line that
+# doesn't end like a sentence -- so a real sentence that merely begins with
+# "Hi-performance", "Dear colleagues are ..." or "Sincerely interested ..."
+# is kept.
 _LETTER_LABEL_RE = re.compile(r"^\s*(?:OPENING|INTRO|BODY|CLOSING|CONCLUSION)\s*:\s*", re.IGNORECASE)
-_LETTER_GREETING_RE = re.compile(r"^\s*(?:dear\b|hello\b|hi\b|sehr geehrte|liebe[rs]?\b|guten tag)", re.IGNORECASE)
+_LETTER_HEAD_RE = re.compile(r"^\s*(?:subject|betreff|re)\s*:|^\s*#+\s", re.IGNORECASE)
+_LETTER_GREETING_RE = re.compile(
+    r"^\s*(?:dear|hello|hi|hallo|sehr geehrte[rsnm]?|liebe[rsnm]?|guten tag|to whom it may concern)\b"
+    r"(?:[^.!?\n]|\b(?:Mr|Mrs|Ms|Dr|Prof|Hr|Fr)\.)*[,:!]\s*$", re.IGNORECASE)
 _LETTER_SIGNOFF_RE = re.compile(
-    r"^\s*(?:best regards|kind regards|warm regards|regards|sincerely|yours\b|"
-    r"mit freundlichen|freundliche grüße|viele grüße|beste grüße|herzliche grüße)", re.IGNORECASE)
+    r"^\s*(?:best regards|kind regards|warm regards|best wishes|with (?:kind|best|warm|many) regards|"
+    r"regards|sincerely|yours (?:sincerely|faithfully|truly)|respectfully|cheers|best|"
+    r"mit (?:freundlichen|besten|herzlichen) grüßen|mit freundlichem gruß|freundliche grüße|"
+    r"viele grüße|beste grüße|herzliche grüße|hochachtungsvoll|mfg)\b", re.IGNORECASE)
+
+
+def _is_greeting_line(line: str, next_line: str) -> bool:
+    if not _LETTER_GREETING_RE.match(line) or len(line.split()) > 9:
+        return False
+    nxt = next_line.strip()
+    # a greeting is followed by a new sentence (or nothing); a line that merely
+    # ends in a comma because the text wrapped there continues in lowercase
+    return not nxt or nxt[0].isupper() or nxt[0].isdigit()
+
+
+def _is_signoff_line(line: str) -> bool:
+    s = line.strip()
+    words = s.split()
+    if not _LETTER_SIGNOFF_RE.match(s) or len(words) > 8:
+        return False
+    if re.search(r"[.?]\s*$", s) and len(words) > 3:   # "Best regards." -- but not a sentence
+        return False
+    return not re.search(r"[.?!]\s+\S", s)             # no sentence break mid-line
+
+
+def _split_paragraphs(text: str) -> list:
+    """Blank-line separated paragraphs; single newlines inside one are just
+    wrapping. No content is removed."""
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    paras = [re.sub(r"\s*\n\s*", " ", p).strip() for p in re.split(r"\n\s*\n", text)]
+    return [p for p in paras if p]
 
 
 def letter_paragraphs(text: str) -> list:
-    """A generated cover letter as a clean list of paragraphs (blank-line
-    separated; single newlines inside a paragraph are just wrapping)."""
+    """A cover letter (generated or hand-edited) as its list of paragraphs,
+    exactly as written -- nothing is stripped (see clean_generated_letter
+    for the model-output clean-up that runs once, at generation time)."""
+    return _split_paragraphs(text)
+
+
+def clean_generated_letter(raw: str) -> str:
+    """The model's output as the plain letter text that gets saved: strips a
+    subject/heading line and a greeting from the top, a sign-off (and the
+    name lines under it) from the bottom, and any OPENING:/BODY: style
+    labels; paragraphs come back separated by one blank line. If the model
+    used single newlines between paragraphs, each line becomes one."""
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
     # a label (old three-block style output) always starts a new paragraph,
     # even when the model didn't leave a blank line before it
-    text = re.sub(r"\n(?=\s*(?:OPENING|INTRO|BODY|CLOSING|CONCLUSION)\s*:)", "\n\n", text or "", flags=re.IGNORECASE)
-    paras = [re.sub(r"\s*\n\s*", " ", p).strip() for p in re.split(r"\n\s*\n", text.strip())]
-    paras = [_LETTER_LABEL_RE.sub("", p).strip() for p in paras]
-    paras = [p for p in paras if p]
-    if paras and _LETTER_GREETING_RE.match(paras[0]) and len(paras[0].split()) <= 12:
-        paras.pop(0)
-    while paras:
-        last = paras[-1]
-        if _LETTER_SIGNOFF_RE.match(last) and len(last.split()) <= 12:
-            paras.pop()                      # "Best regards, Richard"
-        elif len(paras) >= 2 and _LETTER_SIGNOFF_RE.match(paras[-2]) and len(last.split()) <= 5:
-            del paras[-2:]                   # "Best regards," then a separate name line
-        else:
+    text = re.sub(r"\n(?=[ \t]*(?:OPENING|INTRO|BODY|CLOSING|CONCLUSION)[ \t]*:)", "\n\n", text, flags=re.IGNORECASE)
+    lines = [ln.rstrip() for ln in text.split("\n")]
+
+    i = 0
+    while True:                                   # head: subject / heading / greeting lines
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        if i >= len(lines):
             break
-    return paras
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if _LETTER_HEAD_RE.match(lines[i]) or _is_greeting_line(lines[i], nxt):
+            i += 1
+            continue
+        break
+    lines = lines[i:]
+
+    nonempty = [k for k, ln in enumerate(lines) if ln.strip()]
+    for k in reversed(nonempty[-6:]):             # tail: a sign-off line, then only name-like lines
+        if _is_signoff_line(lines[k]):
+            after = [lines[j].strip() for j in range(k + 1, len(lines)) if lines[j].strip()]
+            if all(len(a.split()) <= 6 and not re.search(r"[.?!]\s*$", a) for a in after):
+                lines = lines[:k]
+            break
+
+    paras = [_LETTER_LABEL_RE.sub("", p).strip() for p in _split_paragraphs("\n".join(lines))]
+    paras = [p for p in paras if p]
+    if len(paras) <= 1:
+        single = [ln.strip() for ln in "\n".join(lines).split("\n") if ln.strip()]
+        if len(single) >= 3:
+            paras = [_LETTER_LABEL_RE.sub("", ln).strip() for ln in single]
+    return "\n\n".join(paras)
 
 
 def letter_blocks(text: str) -> dict:
@@ -817,13 +893,13 @@ def generate_cover_letter(job: dict, groups: list, profile: dict, on_progress=No
     by_relevance = sorted(groups, key=lambda g: g["relevance_rank"])
     top = by_relevance[:2]
     company = job.get("company") or "your team"
-    title = job.get("title") or "this role"
+    title = strip_gender_marker(job.get("title") or "") or "this role"
 
     fallback_opening = _COVER_LETTER_OPENING.get(lang, _COVER_LETTER_OPENING["en"]).format(title=title).strip()
     fallback_body = top[0]["summary_raw"] if top else ""
     fallback_closing = (_DEFAULT_OPEN_QUESTION.get(lang, _DEFAULT_OPEN_QUESTION["en"]) + " "
                         + _DEFAULT_THANKS.get(lang, _DEFAULT_THANKS["en"]))
-    fallback ="\n\n".join(p for p in (fallback_opening, fallback_body, fallback_closing) if p)
+    fallback = "\n\n".join(p for p in (fallback_opening, fallback_body, fallback_closing) if p)
 
     if profile_mod.llm_config()["llm_backend"] != "stub":
         achievements = "\n".join(
@@ -838,9 +914,9 @@ def generate_cover_letter(job: dict, groups: list, profile: dict, on_progress=No
 
         try:
             raw = _call_llm(prompt, max_tokens=800, on_progress=on_progress)
-            paras = letter_paragraphs(raw)
-            if len(paras) >= 2:
-                return "\n\n".join(paras)
+            cleaned = clean_generated_letter(raw)
+            if len(letter_paragraphs(cleaned)) >= 2:
+                return cleaned
         except Exception:
             pass  # fall through to the factual fallback below
 
@@ -1012,10 +1088,13 @@ def render_cover_letter_tex(job: dict, profile: dict, letter_text: str) -> str:
 
 
 def build_cover_letter_pdf(job: dict, letter_path: Path) -> dict:
-    """Render and compile the cover letter next to its plain-text source
-    (cover_letter.txt -> cover_letter.tex/.pdf). The .txt stays the one
-    thing anyone edits; re-running this regenerates the PDF from it."""
+    """Render the cover letter from its plain-text source (cover_letter.txt
+    -> cover_letter.tex) and compile it to a PDF. This overwrites any
+    hand-edited .tex (the review page's "Save text & rebuild" does exactly
+    that on purpose); a stale PDF from an earlier build is removed first so
+    a failed build can never leave an old letter looking current."""
     tex_path = letter_path.with_suffix(".tex")
+    tex_path.with_suffix(".pdf").unlink(missing_ok=True)
     tex_path.write_text(
         render_cover_letter_tex(job, profile_mod.load_profile(), letter_path.read_text(encoding="utf-8")),
         encoding="utf-8")
@@ -1179,10 +1258,10 @@ def generate_for_job(job_id: int, on_progress=None) -> dict:
     cover_letter_dir = profile_mod.generated_cover_letter_dir() / dir_name
     cover_letter_dir.mkdir(parents=True, exist_ok=True)
     cover_letter_path = cover_letter_dir / "cover_letter.txt"
-    cover_letter_path.write_text(generate_cover_letter(job, groups, profile_data, on_progress=_bump), encoding="utf-8")
     try:
+        cover_letter_path.write_text(generate_cover_letter(job, groups, profile_data, on_progress=_bump), encoding="utf-8")
         cover = build_cover_letter_pdf(job, cover_letter_path)
-    except Exception as e:  # a template problem must never cost the CV itself
+    except Exception as e:  # a letter problem must never cost the CV itself
         cover = {"ok": False, "page_count": -1, "tex_path": None, "pdf_path": None,
                  "log_tail": f"{type(e).__name__}: {e}"}
 
@@ -1198,7 +1277,7 @@ def generate_for_job(job_id: int, on_progress=None) -> dict:
         "attempts": attempts,
         "tex_path": str(tex_path),
         "pdf_path": str(tex_path.with_suffix(".pdf")) if result["ok"] else None,
-        "cover_letter_path": str(cover_letter_path),
+        "cover_letter_path": str(cover_letter_path) if cover_letter_path.exists() else None,
         "log_tail": result["log_tail"],
     }
 

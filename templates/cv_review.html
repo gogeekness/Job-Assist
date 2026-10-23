@@ -22,15 +22,15 @@
 </div>
 {% endif %}
 
-{% if job.cover_letter_path %}
+{% if has_letter %}
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link {% if active_tab != 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-cv" type="button" role="tab">
+    <button class="nav-link {% if active_tab != 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-cv" type="button" role="tab" id="tab-cv" aria-controls="pane-cv" aria-selected="{{ 'true' if active_tab != 'letter' else 'false' }}">
       <i class="bi bi-file-earmark-pdf me-1"></i>CV
     </button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link {% if active_tab == 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-letter" type="button" role="tab">
+    <button class="nav-link {% if active_tab == 'letter' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-letter" type="button" role="tab" id="tab-letter" aria-controls="pane-letter" aria-selected="{{ 'true' if active_tab == 'letter' else 'false' }}">
       <i class="bi bi-envelope me-1"></i>Cover Letter
     </button>
   </li>
@@ -38,7 +38,7 @@
 {% endif %}
 
 <div class="tab-content">
-<div class="tab-pane {% if active_tab != 'letter' %}active{% endif %}" id="pane-cv" role="tabpanel">
+<div class="tab-pane {% if active_tab != 'letter' %}active{% endif %}" id="pane-cv" role="tabpanel" aria-labelledby="tab-cv">
 <div class="row g-3">
   <!-- PDF preview -->
   <div class="col-12 col-lg-6">
@@ -109,11 +109,11 @@
 
 </div><!-- /pane-cv -->
 
-{% if job.cover_letter_path %}
-<div class="tab-pane {% if active_tab == 'letter' %}active{% endif %}" id="pane-letter" role="tabpanel">
+{% if has_letter %}
+<div class="tab-pane {% if active_tab == 'letter' %}active{% endif %}" id="pane-letter" role="tabpanel" aria-labelledby="tab-letter">
 {% if letter_compile_error %}
 <div class="alert alert-danger">
-  <strong>Compile failed</strong> — fix the cover letter LaTeX below and recompile (or save the text at the bottom to rebuild it from the template).
+  <strong>The cover letter PDF could not be built</strong> — fix the LaTeX below and recompile (or save the text at the bottom to rebuild it from the template).
   <pre class="small mb-0 mt-2" style="max-height:200px; overflow:auto;">{{ letter_compile_error }}</pre>
 </div>
 {% endif %}
@@ -141,7 +141,11 @@
         {% if cover_letter_pdf %}
         <embed src="/generated/{{ job.id }}/cover_letter.pdf" type="application/pdf" style="width:100%; height:80vh;">
         {% else %}
+        {% if cover_letter_tex %}
+        <div class="p-4 text-danger"><i class="bi bi-exclamation-triangle me-1"></i>The PDF failed to build — fix the LaTeX source and recompile, or save the letter text below to rebuild from the template.</div>
+        {% else %}
         <div class="p-4 text-muted">No PDF yet — save the letter text below to build it from the template.</div>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -181,7 +185,7 @@
       <div class="card">
         <div class="card-header fw-semibold">
           <i class="bi bi-envelope me-1"></i>Letter text
-          <span class="text-muted small ms-2">plain paragraphs, edit freely -- the first paragraph is the intro, the last the conclusion, the ones between the body</span>
+          <span class="text-muted small ms-2">plain paragraphs separated by a blank line -- the first is the intro, the last the conclusion, the ones between the body. Greeting and sign-off come from the template.</span>
         </div>
         <div class="card-body p-2">
           <textarea name="cover_letter_text" class="form-control" style="height:260px;"

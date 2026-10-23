@@ -1,0 +1,138 @@
+% ============================================================
+%  Anschreiben -- gleiche Seiteneinstellungen, Farben und Kopfzeile
+%  wie die CV-Vorlage; der Textteil ist ein Abschnitt "Motivation",
+%  gefüllt aus drei Textblöcken. Kompiliert mit einfachem pdflatex.
+%
+%  Platzhalter sind ein Variablenname zwischen doppelten spitzen
+%  Klammern; Logik (if/for) nutzt BLOCK-Tags, wie in der Kopfzeile unten
+%  -- einfache geschweifte Klammern sind hier LaTeX-Syntax, kein Jinja.
+%  (Die Trennzeichen selbst nicht in einen Kommentar schreiben: Jinja
+%  wertet sie auch dort aus.)
+%  Variablen: name, title (Titel der Stelle), company, location, phone,
+%  email, nationality_line, languages_line, links, photo_path und drei
+%  Textblöcke, die nach Absätzen aus dem generierten Brief getrennt
+%  werden: intro (erster Absatz), body (alle Absätze dazwischen, bereits
+%  durch Leerzeilen getrennt; bei sehr kurzen Briefen leer), conclusion
+%  (letzter Absatz; enthält auch den abschließenden Dank, der passend zum
+%  Brief formuliert wird und hier nicht fest vorgegeben ist).
+% ============================================================
+\documentclass[10.5pt]{article}
+
+\usepackage[a4paper, top=1.0cm, bottom=1.0cm, left=1.0cm, right=1.0cm]{geometry}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+
+\IfFileExists{DejaVuSans.sty}{%
+  \usepackage{DejaVuSans}%
+}{%
+  \IfFileExists{tgheros.sty}{%
+    \usepackage[scaled]{tgheros}%
+  }{}%
+}
+\renewcommand{\familydefault}{\sfdefault}
+
+\definecolor{accent}{HTML}{2F6D92}
+\definecolor{darktext}{HTML}{1A1A1A}
+
+% Vertikaler Abstand zwischen Absätzen sowie um Anrede/Grußformel.
+\newlength{\breaks}
+\setlength{\breaks}{14pt}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{\breaks}
+\raggedright
+\color{darktext}
+
+\titleformat{\section}
+  {\Large\bfseries\color{accent}}
+  {}{0em}{}
+  [\vspace{0pt}{\color{accent}\hrule height 1pt}\vspace{2pt}]
+\titlespacing*{\section}{0pt}{9pt}{1pt}
+
+% Gleiche Drittel, \makebox -- jede Zelle bleibt einzeilig (wie im CV).
+\newcommand{\IntroBlock}[6]{%
+  \noindent
+    \begin{minipage}[t]{\linewidth}
+    \normalsize
+    \makebox[0.33\linewidth][l]{\textbf{#1}}%
+    \makebox[0.33\linewidth][c]{\textbf{#2}}%
+    \makebox[0.33\linewidth][r]{\textbf{#3}}
+
+    \makebox[0.33\linewidth][l]{\textbf{#4}}%
+    \makebox[0.33\linewidth][c]{\textbf{#5}}%
+    \makebox[0.33\linewidth][r]{\textbf{#6}}
+    \end{minipage}%
+  }
+
+\begin{document}
+
+% ============================================================
+%  KOPFZEILE (wie im CV)
+% ============================================================
+\BLOCK{if photo_path}
+\noindent
+\begin{minipage}[t]{0.76\linewidth}
+\raggedright
+  {\color{accent}\Huge\textbf{<<name>>}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large <<title>>}}\\[6pt]
+  {\small
+  \IntroBlock
+      {<<location>>}
+      {<<phone>>}
+      {\href{mailto:<<email>>}{<<email>>}}
+      {<<nationality_line>>}
+      {<<languages_line>>}
+      {\BLOCK{if links}\href{<<links[0].url>>}{<<links[0].label>>}\BLOCK{endif}}
+  }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.20\linewidth}
+  \includegraphics[width=\linewidth]{<<photo_path>>}
+\end{minipage}
+\BLOCK{else}
+\begin{center}
+  {\color{accent}\Huge\textbf{<<name>>}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large <<title>>}}\\[6pt]
+  {\small
+  \IntroBlock
+      {<<location>>}
+      {<<phone>>}
+      {\href{mailto:<<email>>}{<<email>>}}
+      {<<nationality_line>>}
+      {<<languages_line>>}
+      {\BLOCK{if links}\href{<<links[0].url>>}{<<links[0].label>>}\BLOCK{endif}}
+  }
+\end{center}
+\BLOCK{endif}
+
+% ============================================================
+%  MOTIVATION
+% ============================================================
+\section*{Motivation}
+\vspace{\breaks}
+\large
+
+\BLOCK{if company}
+{\Large\textbf{Sehr geehrtes Team von <<company>>,}\par}
+\BLOCK{else}
+{\Large\textbf{Sehr geehrte Damen und Herren,}\par}
+\BLOCK{endif}
+
+<<intro>>
+
+\BLOCK{if body}
+<<body>>
+
+\BLOCK{endif}
+<<conclusion>>
+
+\vspace{\breaks}
+{\Large Mit freundlichen Grüßen,\par}
+\vspace{\breaks}
+\textbf{<<name>>}
+\end{document}
