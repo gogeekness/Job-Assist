@@ -9,8 +9,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import generate_cv as g          # noqa: E402
-import profile as profile_mod    # noqa: E402
+import profile as profile_mod  # noqa: E402
+
+import generate_cv as g  # noqa: E402
 
 SKELETON = profile_mod.SKELETON_DIR
 PROFILE = {"name": "Jane Roe", "default_title": "Engineer", "location": "Berlin", "phone": "1",
