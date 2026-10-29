@@ -1421,6 +1421,11 @@ def delete_selected():
             job_dir = Path(row["cv_tex_path"]).resolve().parent
             if _under_generated_root(job_dir):
                 shutil.rmtree(job_dir, ignore_errors=True)
+        row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (jid,)).fetchone()
+        if row and row["cover_letter_path"]:
+            letter_dir = Path(row["cover_letter_path"]).resolve().parent
+            if _under_generated_root(letter_dir):
+                shutil.rmtree(letter_dir, ignore_errors=True)
         conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
         deleted += 1
     db.delete_job_state(conn, job_ids)
@@ -1500,32 +1505,102 @@ def generate_selected():
     threading.Thread(target=_do_generate_selected, args=(job_ids,), daemon=True).start()
     return jsonify({"started": "generate_selected", "total": len(job_ids)})
 
-@app.route("/jobs/<int:job_id>/cv")
-def cv_review(job_id):
+def _review_page(job_id, active_tab="cv", compile_error=None, tex_content=None,
+                 letter_error=None, letter_tex=None):
+    """The CV Review page -- one builder for the normal view and every
+    compile-failure view, so a failed recompile of either document still
+    shows the whole page (both tabs), with the failing text kept in its
+    editor instead of replaced by what's on disk."""
     conn = db.connect_db()
     row = conn.execute("SELECT * FROM jobs_full WHERE id=?", (job_id,)).fetchone()
     conn.close()
     if not row:
         return "Not found", 404
     job = dict(row)
-    tex_content, compile_error = "", None
-    if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
-        tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
-    cover_letter_text = ""
+    if tex_content is None:
+        tex_content = ""
+        if job.get("cv_tex_path") and Path(job["cv_tex_path"]).exists():
+            tex_content = Path(job["cv_tex_path"]).read_text(encoding="utf-8")
+    cover_letter_text, cover_letter_pdf, has_letter = "", False, False
+    if letter_tex is None:
+        letter_tex = ""
     if job.get("cover_letter_path") and Path(job["cover_letter_path"]).exists():
-        cover_letter_text = Path(job["cover_letter_path"]).read_text(encoding="utf-8")
+        has_letter = True
+        letter_path = Path(job["cover_letter_path"])
+        cover_letter_text = letter_path.read_text(encoding="utf-8")
+        cover_letter_pdf = letter_path.with_suffix(".pdf").exists()
+        if not letter_tex and letter_path.with_suffix(".tex").exists():
+            letter_tex = letter_path.with_suffix(".tex").read_text(encoding="utf-8")
+    if not has_letter:
+        active_tab = "cv"          # no letter tab to show (e.g. ?tab=letter on an old job)
     return render_template("cv_review.html", job=job, tex_content=tex_content, compile_error=compile_error,
-                            cover_letter_text=cover_letter_text)
+                            cover_letter_text=cover_letter_text, cover_letter_pdf=cover_letter_pdf,
+                            cover_letter_tex=letter_tex, letter_compile_error=letter_error,
+                            has_letter=has_letter, active_tab=active_tab)
+
+@app.route("/jobs/<int:job_id>/cv")
+def cv_review(job_id):
+    return _review_page(job_id, active_tab="letter" if request.args.get("tab") == "letter" else "cv")
 
 @app.route("/jobs/<int:job_id>/cover_letter", methods=["POST"])
 def save_cover_letter(job_id):
+    """Save the plain letter text and rebuild the LaTeX + PDF from it
+    (this replaces the LaTeX source -- hand edits to that are what
+    /cover_letter/recompile is for)."""
     conn = db.connect_db()
     row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
     conn.close()
     if not row or not row["cover_letter_path"]:
         return "No cover letter generated yet for this job", 400
-    Path(row["cover_letter_path"]).write_text(request.form.get("cover_letter_text", ""), encoding="utf-8")
-    return redirect(url_for("cv_review", job_id=job_id))
+    import generate_cv
+    letter_path = Path(row["cover_letter_path"]).resolve()
+    if not _under_generated_root(letter_path):
+        return "Not found", 404
+    letter_path.write_text(request.form.get("cover_letter_text", ""), encoding="utf-8")
+    try:
+        result = generate_cv.build_cover_letter_pdf(generate_cv.get_job(job_id), letter_path)
+    except Exception as e:
+        result = {"ok": False, "log_tail": f"{type(e).__name__}: {e}"}
+    if not result["ok"]:
+        return _review_page(job_id, active_tab="letter", letter_error=result["log_tail"])
+    return redirect(url_for("cv_review", job_id=job_id, tab="letter"))
+
+@app.route("/jobs/<int:job_id>/cover_letter/recompile", methods=["POST"])
+def cover_letter_recompile(job_id):
+    """Recompile hand-edited cover letter LaTeX -- same as the CV's
+    Recompile. (The plain text above it is untouched; saving that rebuilds
+    the LaTeX from the template and replaces these edits.)"""
+    conn = db.connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "No cover letter generated yet for this job", 400
+    import generate_cv
+    tex_path = Path(row["cover_letter_path"]).with_suffix(".tex").resolve()
+    if not _under_generated_root(tex_path):
+        return "Not found", 404
+    tex_text = request.form.get("cover_letter_tex", "")
+    tex_path.write_text(tex_text, encoding="utf-8")
+    tex_path.with_suffix(".pdf").unlink(missing_ok=True)   # a failed build must not leave the old letter showing
+    result = generate_cv.compile_pdf(tex_path)
+    if not result["ok"]:
+        return _review_page(job_id, active_tab="letter", letter_error=result["log_tail"], letter_tex=tex_text)
+    return redirect(url_for("cv_review", job_id=job_id, tab="letter"))
+
+@app.route("/generated/<int:job_id>/cover_letter.tex")
+def serve_cover_letter_tex(job_id):
+    conn = db.connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "Not found", 404
+    tex_path = Path(row["cover_letter_path"]).with_suffix(".tex").resolve()
+    if not _under_generated_root(tex_path) or not tex_path.exists():
+        return "Not found", 404
+    return Response(
+        tex_path.read_bytes(), mimetype="application/x-tex",
+        headers={"Content-Disposition": f'attachment; filename="{tex_path.name}"'},
+    )
 
 @app.route("/jobs/<int:job_id>/cv/recompile", methods=["POST"])
 def cv_recompile(job_id):
@@ -1543,9 +1618,7 @@ def cv_recompile(job_id):
         conn.commit()
     conn.close()
     if not result["ok"]:
-        job = get_job_for_review(job_id)
-        return render_template("cv_review.html", job=job, tex_content=tex_path.read_text(encoding="utf-8"),
-                                compile_error=result["log_tail"])
+        return _review_page(job_id, compile_error=result["log_tail"], tex_content=tex_path.read_text(encoding="utf-8"))
     return redirect(url_for("cv_review", job_id=job_id))
 
 @app.route("/jobs/<int:job_id>/cv/approve", methods=["POST"])
@@ -1556,12 +1629,6 @@ def cv_approve(job_id):
     conn.close()
     return redirect(url_for("job_detail", job_id=job_id))
 
-def get_job_for_review(job_id):
-    conn = db.connect_db()
-    row = conn.execute("SELECT * FROM jobs_full WHERE id=?", (job_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
 @app.route("/generated/<int:job_id>/cv.pdf")
 def serve_generated_pdf(job_id):
     conn = db.connect_db()
@@ -1570,6 +1637,20 @@ def serve_generated_pdf(job_id):
     if not row or not row["cv_pdf_path"]:
         return "Not found", 404
     pdf_path = Path(row["cv_pdf_path"]).resolve()
+    if not _under_generated_root(pdf_path) or not pdf_path.exists():
+        return "Not found", 404
+    return Response(pdf_path.read_bytes(), mimetype="application/pdf")
+
+@app.route("/generated/<int:job_id>/cover_letter.pdf")
+def serve_cover_letter_pdf(job_id):
+    # not stored in the db -- always sits next to cover_letter.txt, which is
+    # what the job row points at (generate_cv.build_cover_letter_pdf)
+    conn = db.connect_db()
+    row = conn.execute("SELECT cover_letter_path FROM jobs_full WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row or not row["cover_letter_path"]:
+        return "Not found", 404
+    pdf_path = Path(row["cover_letter_path"]).with_suffix(".pdf").resolve()
     if not _under_generated_root(pdf_path) or not pdf_path.exists():
         return "Not found", 404
     return Response(pdf_path.read_bytes(), mimetype="application/pdf")
@@ -2069,26 +2150,44 @@ def prompts():
                        "text": text, "kind": "external"})
     return render_template("prompts.html", items=items, saved=request.args.get("saved"))
 
+def _editable_template(kind: str):
+    """(label, path to read, path to save to, default to reset from) for one
+    of the two LaTeX templates a profile owns. The cover letter template
+    reads through a fallback to the skeleton's copy (profile.py) for a
+    profile that predates it, but always SAVES into the profile's own; its
+    reset default is the skeleton template in the profile's language.
+    Callers have already checked there is an active profile folder."""
+    d = profile.active_profile_dir()
+    if kind == "cover_letter":
+        lang = profile.load_config().get("lang", "en")
+        return ("Cover Letter Template", profile.cover_letter_template_path(),
+                d / "cover_letter.tex.jinja",
+                profile.skeleton_cover_letter_path(lang))
+    return ("CV Template", profile.template_path(), profile.template_path(),
+            profile.SKELETON_DIR / "template.tex.jinja")
+
 @app.route("/template_editor", methods=["GET", "POST"])
 def template_editor():
-    if not profile.active_profile_id():
+    if not profile.active_profile_dir():
         return redirect(url_for("index"))
-    path = profile.template_path()
+    kind = "cover_letter" if request.values.get("which") == "cover_letter" else "cv"
+    label, read_path, write_path, _default = _editable_template(kind)
     if request.method == "POST":
-        path.write_text(request.form.get("template_content", ""), encoding="utf-8")
-        return redirect(url_for("template_editor", saved=1))
-    return render_template("template_editor.html",
-                            template_content=path.read_text(encoding="utf-8") if path.exists() else "",
+        write_path.write_text(request.form.get("template_content", ""), encoding="utf-8")
+        return redirect(url_for("template_editor", which=kind, saved=1))
+    return render_template("template_editor.html", which=kind, template_label=label,
+                            template_content=read_path.read_text(encoding="utf-8") if read_path.exists() else "",
                             saved=request.args.get("saved"))
 
 @app.route("/template_editor/reset", methods=["POST"])
 def reset_template():
-    if not profile.active_profile_id():
+    if not profile.active_profile_dir():
         return redirect(url_for("index"))
-    default_path = profile.SKELETON_DIR / "template.tex.jinja"
+    kind = "cover_letter" if request.values.get("which") == "cover_letter" else "cv"
+    _label, _read, write_path, default_path = _editable_template(kind)
     if default_path.exists():
-        profile.template_path().write_text(default_path.read_text(encoding="utf-8"), encoding="utf-8")
-    return redirect(url_for("template_editor", saved=1))
+        write_path.write_text(default_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return redirect(url_for("template_editor", which=kind, saved=1))
 
 @app.route("/system_prompts/reset/<name>", methods=["POST"])
 def reset_system_prompt(name):

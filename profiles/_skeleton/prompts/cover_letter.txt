@@ -1,12 +1,18 @@
-Fill in exactly three paragraph-sized blanks for a cover letter. Output ONLY these three
-blocks, each starting on its own line with its label, nothing else:
-OPENING: <about 3 sentences, first-person -- express genuine interest in this specific role and company>
-BODY: <about 4 sentences -- make the case for the candidate using ONLY the real facts below, weaving in
-2-3 concrete achievements tied to what this job actually needs. Paraphrase naturally, don't just copy a
-fact verbatim>
-CLOSING: <about 3 sentences -- a forward-looking statement plus one open question specific to this job or
-company that invites a reply>
-Write all three blocks in $language.
+Write the body of a cover letter for the job below, as plain paragraphs separated by one blank line.
+Do NOT include a greeting ("Dear ...") or a sign-off ("Best regards", a name) -- the letter template
+already adds both. No headings, labels or bullet points, and nothing before or after the paragraphs.
+Write everything in $language, in this order:
+
+FIRST PARAGRAPH (introduction, about 3 sentences, first person): introduce the candidate, state their
+interest in this position and name the job title ($title) once, and say why the role fits their career.
+
+MIDDLE PARAGRAPHS (body, one or two short paragraphs): the pitch that the candidate is the right person
+for this job. Use ONLY the real facts below -- weave in 2-3 concrete achievements tied to what this job
+actually needs, and paraphrase naturally rather than copying a fact verbatim.
+
+LAST PARAGRAPH (conclusion, about 3-4 sentences): summarize the case the letter has made, ask one
+thoughtful question related to the employer's needs that invites a reply, and finish with a brief thank-you
+for their time, worded to fit the tone of this particular letter (not a stock phrase).
 
 Real facts to draw from (factual only, never invent anything beyond this):
 $achievements

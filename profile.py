@@ -85,6 +85,31 @@ def template_path() -> Path:
     d = active_profile_dir()
     return (d / "template.tex.jinja") if d else (BASE / "tex_templates" / "cv_template.tex.jinja")
 
+def skeleton_cover_letter_path(lang: str = "en") -> Path:
+    """The skeleton's cover letter template for a language (German if the
+    skeleton has one for it, else the English default)."""
+    if lang == "de":
+        de = SKELETON_DIR / "cover_letter.de.tex.jinja"
+        if de.exists():
+            return de
+    return SKELETON_DIR / "cover_letter.tex.jinja"
+
+def cover_letter_template_path() -> Path:
+    """This profile's own cover letter LaTeX template -- same format as the
+    CV template (template_path) but a much smaller one: header, colors,
+    page setup, and a Motivation section filled from three text blocks
+    (intro, body, conclusion). A profile created before this file existed
+    (or whose copy was deleted) falls back to the skeleton's template in
+    the profile's language, so cover letter generation never breaks on a
+    missing template."""
+    d = active_profile_dir()
+    if d:
+        own = d / "cover_letter.tex.jinja"
+        if own.exists():
+            return own
+        return skeleton_cover_letter_path(load_config().get("lang", "en"))
+    return skeleton_cover_letter_path("en")   # legacy mode has no profile folder
+
 def prompts_dir() -> Path:
     d = active_profile_dir()
     return (d / "prompts") if d else (BASE / "active-settings" / "prompts")
@@ -224,5 +249,7 @@ def create_profile(label: str) -> str:
     while (PROFILES_DIR / pid).exists():
         n += 1
         pid = f"{label}-{n}"
-    shutil.copytree(SKELETON_DIR, PROFILES_DIR / pid)
+    # the German cover letter template is only a reset/fallback source (see
+    # skeleton_cover_letter_path), not something a new profile starts with
+    shutil.copytree(SKELETON_DIR, PROFILES_DIR / pid, ignore=shutil.ignore_patterns("cover_letter.de.tex.jinja"))
     return pid

@@ -1,16 +1,35 @@
 {% extends "base.html" %}
-{% block title %}CV Template ({{ active_profile }}) — Job Assist{% endblock %}
+{% block title %}{{ template_label }} ({{ active_profile }}) — Job Assist{% endblock %}
 
 {% block content %}
 <div class="row g-3">
   <div class="col-12">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>CV Template — {{ active_profile }}</h5>
-      <span class="text-muted small">The LaTeX/Jinja2 source every generated CV is built from. Changes take effect on the next Generate/Regenerate.</span>
+      <h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>{{ template_label }} — {{ active_profile }}</h5>
+      <span class="text-muted small">The LaTeX/Jinja2 source every generated {% if which == 'cover_letter' %}cover letter{% else %}CV{% endif %} is built from. Changes take effect on the next Generate/Regenerate{% if which == 'cover_letter' %} (or Save on a cover letter in CV Review){% endif %}.</span>
     </div>
+
+    <ul class="nav nav-pills mb-2">
+      <li class="nav-item"><a class="nav-link py-1 {% if which == 'cv' %}active{% endif %}" href="/template_editor?which=cv">CV</a></li>
+      <li class="nav-item"><a class="nav-link py-1 {% if which == 'cover_letter' %}active{% endif %}" href="/template_editor?which=cover_letter">Cover Letter</a></li>
+    </ul>
+
     {% if saved %}
     <div class="alert alert-success py-2 small">Saved.</div>
     {% endif %}
+
+    {% if which == 'cover_letter' %}
+    <div class="alert alert-secondary py-2 small">
+      Placeholders are written between double angle brackets, e.g. <code>&lt;&lt;intro&gt;&gt;</code>; logic
+      (<code>if</code>/<code>for</code>) uses <code>\BLOCK{...}</code> — plain <code>{ }</code> is LaTeX syntax here, not Jinja.
+      Don't write those delimiters inside a <code>%</code> comment: Jinja still parses them there.<br>
+      Available variables: <code>name</code>, <code>title</code> (the job's title), <code>company</code>, <code>location</code>,
+      <code>phone</code>, <code>email</code>, <code>nationality_line</code>, <code>languages_line</code>, <code>links</code>,
+      <code>photo_path</code>, and the letter itself split by paragraph: <code>intro</code> (first paragraph),
+      <code>body</code> (the paragraphs in between), <code>conclusion</code> (the last, including its thank-you).
+      The greeting and sign-off are plain text in this template, so they can be in this profile's language.
+    </div>
+    {% else %}
     <div class="alert alert-secondary py-2 small">
       Custom delimiters: use <code>\VAR{...}</code> for variables and <code>\BLOCK{...}</code> for logic
       (<code>if</code>/<code>for</code>/etc.) instead of Jinja's normal <code>{{ '{{' }} {{ '}}' }}</code>/<code>{% raw %}{%{% endraw %} %{% raw %}}{% endraw %}</code> — plain <code>{ }</code> is LaTeX syntax here, not Jinja.
@@ -19,10 +38,12 @@
       <code>certificates</code>, <code>projects</code>, <code>skill_categories</code>, <code>full_groups</code>, <code>earlier_groups</code>,
       <code>intro</code>, <code>labels</code>.
     </div>
+    {% endif %}
   </div>
 
   <div class="col-12">
     <form method="POST" accept-charset="UTF-8">
+      <input type="hidden" name="which" value="{{ which }}">
       <div class="card">
         <div class="card-body p-2">
           <textarea name="template_content" class="form-control font-monospace" style="height:70vh; font-size:.8rem;"
@@ -32,7 +53,7 @@
           <button type="submit" class="btn btn-primary btn-sm">
             <i class="bi bi-save me-1"></i>Save
           </button>
-          <button type="button" class="btn btn-outline-danger btn-sm" id="reset-template-btn">
+          <button type="button" class="btn btn-outline-danger btn-sm" id="reset-template-btn" data-which="{{ which }}">
             <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Blank Default
           </button>
         </div>
@@ -44,9 +65,11 @@
 
 {% block scripts %}
 <script>
-document.getElementById('reset-template-btn').addEventListener('click', () => {
+document.getElementById('reset-template-btn').addEventListener('click', function() {
   if (!confirm('Reset to the blank starting template? This discards your current template and cannot be undone.')) return;
-  fetch('/template_editor/reset', {method: 'POST'})
+  const form = new FormData();
+  form.append('which', this.dataset.which);
+  fetch('/template_editor/reset', {method: 'POST', body: form})
     .then(() => location.reload())
     .catch(e => alert('Error: ' + e));
 });

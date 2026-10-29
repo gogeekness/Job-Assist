@@ -1,0 +1,137 @@
+% ============================================================
+%  Cover letter -- same page setup, colors and header as the CV
+%  template; the body is one Motivation section filled from three
+%  text blocks. Compiles with plain pdflatex.
+%
+%  Placeholders are a variable name between double angle brackets;
+%  logic (if/for) uses BLOCK tags, as in the header below -- plain
+%  curly braces are LaTeX syntax here, not Jinja. (Don't write the
+%  delimiters themselves in a comment: Jinja still parses them there.)
+%  Variables: name, title (the job's title), company, location, phone,
+%  email, nationality_line, languages_line, links, photo_path, and three
+%  text blocks split from the generated letter by paragraph: intro (the
+%  first paragraph), body (every paragraph in between, already separated
+%  by blank lines; empty for a very short letter), conclusion (the last;
+%  it also carries the closing thank-you, which is written to fit the
+%  letter rather than fixed here).
+% ============================================================
+\documentclass[10.5pt]{article}
+
+\usepackage[a4paper, top=1.0cm, bottom=1.0cm, left=1.0cm, right=1.0cm]{geometry}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+
+\IfFileExists{DejaVuSans.sty}{%
+  \usepackage{DejaVuSans}%
+}{%
+  \IfFileExists{tgheros.sty}{%
+    \usepackage[scaled]{tgheros}%
+  }{}%
+}
+\renewcommand{\familydefault}{\sfdefault}
+
+\definecolor{accent}{HTML}{2F6D92}
+\definecolor{darktext}{HTML}{1A1A1A}
+
+% Vertical gap between paragraphs, and around the greeting/sign-off.
+\newlength{\breaks}
+\setlength{\breaks}{14pt}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{\breaks}
+\raggedright
+\color{darktext}
+
+\titleformat{\section}
+  {\Large\bfseries\color{accent}}
+  {}{0em}{}
+  [\vspace{0pt}{\color{accent}\hrule height 1pt}\vspace{2pt}]
+\titlespacing*{\section}{0pt}{9pt}{1pt}
+
+% Equal thirds, \makebox -- keeps each cell on one line (same as the CV).
+\newcommand{\IntroBlock}[6]{%
+  \noindent
+    \begin{minipage}[t]{\linewidth}
+    \normalsize
+    \makebox[0.33\linewidth][l]{\textbf{#1}}%
+    \makebox[0.33\linewidth][c]{\textbf{#2}}%
+    \makebox[0.33\linewidth][r]{\textbf{#3}}
+
+    \makebox[0.33\linewidth][l]{\textbf{#4}}%
+    \makebox[0.33\linewidth][c]{\textbf{#5}}%
+    \makebox[0.33\linewidth][r]{\textbf{#6}}
+    \end{minipage}%
+  }
+
+\begin{document}
+
+% ============================================================
+%  HEADER (same as the CV)
+% ============================================================
+\BLOCK{if photo_path}
+\noindent
+\begin{minipage}[t]{0.76\linewidth}
+\raggedright
+  {\color{accent}\Huge\textbf{<<name>>}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large <<title>>}}\\[6pt]
+  {\small
+  \IntroBlock
+      {<<location>>}
+      {<<phone>>}
+      {\href{mailto:<<email>>}{<<email>>}}
+      {<<nationality_line>>}
+      {<<languages_line>>}
+      {\BLOCK{if links}\href{<<links[0].url>>}{<<links[0].label>>}\BLOCK{endif}}
+  }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.20\linewidth}
+  \includegraphics[width=\linewidth]{<<photo_path>>}
+\end{minipage}
+\BLOCK{else}
+\begin{center}
+  {\color{accent}\Huge\textbf{<<name>>}}\\[4pt]
+  \color{darktext}
+  {\textbf{\Large <<title>>}}\\[6pt]
+  {\small
+  \IntroBlock
+      {<<location>>}
+      {<<phone>>}
+      {\href{mailto:<<email>>}{<<email>>}}
+      {<<nationality_line>>}
+      {<<languages_line>>}
+      {\BLOCK{if links}\href{<<links[0].url>>}{<<links[0].label>>}\BLOCK{endif}}
+  }
+\end{center}
+\BLOCK{endif}
+
+% ============================================================
+%  MOTIVATION
+% ============================================================
+\section*{Motivation}
+\vspace{\breaks}
+\large
+
+\BLOCK{if company}
+{\Large\textbf{Dear <<company>> Hiring Team,}\par}
+\BLOCK{else}
+{\Large\textbf{Dear Hiring Team,}\par}
+\BLOCK{endif}
+
+<<intro>>
+
+\BLOCK{if body}
+<<body>>
+
+\BLOCK{endif}
+<<conclusion>>
+
+\vspace{\breaks}
+{\Large Best regards,\par}
+\vspace{\breaks}
+\textbf{<<name>>}
+\end{document}
