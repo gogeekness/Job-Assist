@@ -23,7 +23,7 @@ The application harvests job posting from multiple site.  As the I live in Berli
 Well over 5000 jobs will be pulled so the filters are as important as the job sites.  From the image below your can see the sources and Language (Living in Berlin, I need to filter for that).  While I am looking for IT position, many other professions can be searched.
 - You can always add more.
 
-![image caption](/home/reseke/Pictures/Find-Job-1.png)
+![image caption](docs/images/Find-Job-1.png)
 
 2. **Filters and searches the job list** 
 This is where you can find, filter, and rate jobs.
@@ -44,13 +44,13 @@ Filtering is by:
 **Batch rating** Select multiple jobs to rate to process many jobs to find the best fit for your needs.
 **Blank Job** Add a job not listed to rate and generate a CV from.
 
-![image caption](/home/reseke/Pictures/Find-Job-2-jobs_list.png)
+![image caption](docs/images/Find-Job-2-jobs_list.png)
 
 3. **Rates every posting against your real CV content** — a 0-10 fit score, summary, highlights, and concerns, generated per-job or in bulk. Pick the rating backend in the Settings pane. Most settings are per profile.
 
 When you find the job you what to look at closer, You can select it see the more information about that job.  From here you can see where it is located, language, and from what job site.  There is more information as ID and keywords matching.  There is an option to rate the job by LLM and what it thinks is a good match from your past CVs and information.  From this pane you can go to the website where the job is posted and generate a new CV by keywords or by LLM.  In the settings you can select the ratio between keyword or LLM CV generation.  The CV intro and a basic cover letter is also generated.  
 
-![image caption](/home/reseke/Pictures/Find-Job-3-rated-job.png)
+![image caption](docs/images/Find-Job-3-rated-job.png)
 
 5. **Generates CV & matching Cover Letter** The goal of this application is to create a CV "good enough" to be of use.  You can be modify many settings to get close to the perfect CV, but I have "Good enough" is much more attainable. Instead of taking hours to craft the perfect CV this application gets you 85 - 90% of the way there.  You only need to edit or tweak the output to the specific job's needs. Thus a lot of time is saved and more tailored CVs are written.  The Bullet Bank has all of your jobs and bullet points (job title, job summation, what you did, responsibilities, tools used, your accomplishments, etc.), so the new generated CV has your "voice", ordered to match the job you are looking at. In the example below I might change the CV intro.  The cover letter is below, not shown.
 
@@ -60,7 +60,7 @@ When you find the job you what to look at closer, You can select it see the more
 - There is a CV template that is fully editable as the base for the CV generation.
 - the LateX side (right) is fully editable and you can generate the PDF any time.  You can copy the LateX text into another Latex utility if you have a preferred editor. 
 
-![image caption](/home/reseke/Pictures/Job-Finder_CV-generation-4.png)
+![image caption](docs/images/Job-Finder_CV-generation-4.png)
 
 7. **Batches the repetitive parts** — select many jobs at once from the
    list and either rate all of them or generate CVs for all of them in one
