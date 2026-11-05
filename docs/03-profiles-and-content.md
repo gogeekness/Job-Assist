@@ -69,6 +69,8 @@ edit the skeleton. It's tracked in git, so keep personal data out of it.
 `bullet_bank.csv` is the most important input. **Generated CVs contain only
 what's in this file**: nothing is invented.
 
+![image caption](images/Screenshot_bullet_bank_de.png)
+
 ### Format
 
 - **Row 1** is a banner and is ignored. **Row 2** is the header. Data starts
