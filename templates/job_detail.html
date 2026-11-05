@@ -66,7 +66,7 @@
         <div class="d-flex flex-wrap gap-3 small text-muted">
           <span>ID: <strong>{{ job.id }}</strong></span>
           <span>Added: <strong>{{ (job.created_at or '')[:10] }}</strong></span>
-          {% if job.date_posted %}<span>Posted: <strong>{{ (job.date_posted or '')[:10] }}</strong></span>{% endif %}
+          {% if job.date_posted %}<span>Posted: <strong>{{ job.date_posted | fmtdate }}</strong></span>{% endif %}
           <span>Source: <strong>{{ job.source or '—' }}</strong></span>
         </div>
         {% if job.keywords_raw %}
