@@ -30,6 +30,8 @@ time.
 Click **Test access** after saving. It sends a tiny request (around 10
 tokens) and reports whether the backend works.
 
+![image caption](images/Job_Assiste_backend_LLM_settings.png)
+
 ## stub
 
 No setup. Rating is a weighted keyword match between the job text and your

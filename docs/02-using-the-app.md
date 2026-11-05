@@ -113,6 +113,8 @@ left to the LLM:
 | 3–7 | **Hybrid** *(default)* | The LLM chooses, and safety nets apply: priority tiers, a fallback when the LLM picks nothing, and max-bullet caps. |
 | 8–10 | **LLM-led** | The LLM's placement is used as-is and the priority-tier override is turned off. Gives more variety from job to job. |
 
+![image caption](images/Job-Assist_CV_gen_setting.png)
+
 ![image caption](images/Job-Finder_CV-generation-4.png)
 
 ## 5. Review, edit, approve
@@ -126,6 +128,8 @@ source.
   Overleaf.
 - Click **Approve** when it's ready to send. The workflow bar tracks
   approval status.
+
+![image caption](images/Job-assist_CV-review.png)
 
 Output files are under `profiles/<id>/generated_cvs/` and
 `generated_cover_letters/`.
