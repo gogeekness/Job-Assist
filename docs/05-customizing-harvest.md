@@ -34,6 +34,8 @@ Finding Greenhouse tokens: open a company's careers page. If links go to
 `boards.greenhouse.io/<token>` or `job-boards.greenhouse.io/<token>`, that
 `<token>` is what to add.
 
+![image caption](images/Jos_assist_Job-List2.png)
+
 ## Changing search terms and countries (JobSpy)
 
 In `FindJobs.py`:
