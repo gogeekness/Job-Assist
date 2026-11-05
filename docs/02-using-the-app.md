@@ -39,6 +39,8 @@ like any other, and it skips the automatic language exclusion.
 Old postings are purged automatically after a retention window (Settings,
 7–60 days, default 45), along with their per-profile state.
 
+![image caption](images/Find-Job-1.png)
+
 ## 2. Filter
 
 The Jobs sidebar filters by:
@@ -56,6 +58,8 @@ plus *Unviewed* and *Has Notes*.
 
 Click **Save preset** to store any filter combination under a name. Filters
 stay in place while you move between pages.
+
+![image caption](images/Find-Job-2-jobs_list.png)
 
 ## 3. Rate
 
@@ -80,6 +84,8 @@ scripts/install_nightly_rate_cron.sh "My Preset Name" 23:00
 This rates unrated jobs in that preset each night, working in
 45-minutes-on / 15-minutes-off cycles so the GPU isn't busy all night. The
 log goes to `backups/nightly_rate.log`.
+
+![image caption](images/Find-Job-3-rated-job.png)
 
 ## 4. Generate
 
@@ -106,6 +112,8 @@ left to the LLM:
 | 0–2 | **Rule-based** | No LLM call for placement. Uses your `domain.json` targets and keyword scores. Deterministic, so the same job always gives the same CV. |
 | 3–7 | **Hybrid** *(default)* | The LLM chooses, and safety nets apply: priority tiers, a fallback when the LLM picks nothing, and max-bullet caps. |
 | 8–10 | **LLM-led** | The LLM's placement is used as-is and the priority-tier override is turned off. Gives more variety from job to job. |
+
+![image caption](images/Job-Finder_CV-generation-4.png)
 
 ## 5. Review, edit, approve
 
