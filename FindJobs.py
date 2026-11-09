@@ -2216,33 +2216,6 @@ def domain_editor():
     return render_template("domain_editor.html", domain_content=content,
                             error=None, saved=request.args.get("saved"))
 
-@app.route("/domain_editor", methods=["GET", "POST"])
-def domain_editor():
-    """Raw JSON editor for the active profile's domain.json (skill
-    categories, keyword weights, bullet targets -- see domain_config_path()
-    in profile.py). Validates with json.loads() before writing, so a typo
-    can't silently replace the whole file with profile.load_domain_config()'s
-    empty-dict fallback -- the bad text is kept on screen with the parser's
-    own error instead of being saved."""
-    if not profile.active_profile_dir():
-        return redirect(url_for("index"))
-    path = profile.domain_config_path()
-
-    if request.method == "POST":
-        raw = request.form.get("domain_content", "")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as e:
-            return render_template("domain_editor.html", domain_content=raw,
-                                    error=f"Line {e.lineno}, column {e.colno}: {e.msg}",
-                                    saved=None)
-        path.write_text(json.dumps(parsed, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        return redirect(url_for("domain_editor", saved=1))
-
-    content = path.read_text(encoding="utf-8") if path.exists() else ""
-    return render_template("domain_editor.html", domain_content=content,
-                            error=None, saved=request.args.get("saved"))
-
 @app.route("/system_prompts/reset/<name>", methods=["POST"])
 def reset_system_prompt(name):
     valid_names = {n for n, _l, _d in _SYSTEM_PROMPTS}
