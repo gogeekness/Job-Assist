@@ -179,7 +179,11 @@ def load_csv_bullets(csv_path: Path = None) -> List[dict]:
             variants.insert(0, {"label": "Base", "text": base, "lang": lang})
 
         family = [s.strip() for s in col(row, "Source CV Family").split(",") if s.strip()]
-        skills = [s.strip() for s in col(row, "Core Skill Tags").split(",") if s.strip()]
+        # underscores are a free-text convention in this column (e.g.
+        # "tcp_ip", "github_actions") -- normalized to spaces so they line
+        # up with domain.json's space-separated keyword spellings instead
+        # of needing an underscore-specific synonym entry per tag
+        skills = [s.strip().replace("_", " ") for s in col(row, "Core Skill Tags").split(",") if s.strip()]
         period = _normalize(col(row, "Period"))
         try:
             importance = int(col(row, "Imp."))
